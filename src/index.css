@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-surface: #f7ecee;
+  --color-surface-dim: #ebd7dc;
+  --color-surface-container-lowest: #fff9fa;
+  --color-surface-container-low: #fdf4f5;
+  --color-surface-container: #f3e2e5;
+  --color-surface-container-high: #edd4d9;
+  --color-surface-container-highest: #e5c5cc;
+  --color-primary: #6c2e3e;
+  --color-primary-container: #7a3b4d;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #fddfe5;
+  --color-secondary: #b89758;
+  --color-secondary-container: #fed488;
+  --color-on-secondary-container: #5d4201;
+  --color-antique-gold: #b89758;
+  --color-gold-light: #d4b87d;
+  --color-gold-dark: #8c6d3b;
+  --color-on-surface: #25181c;
+  --color-on-surface-variant: #5a454b;
+  --color-outline: #847376;
+  --color-outline-variant: #dfc3c9;
+  --color-rose-subtle: #f2d9de;
+
+  --font-handwriting: 'Caveat', cursive;
+  --font-display-hero: 'Playfair Display', Georgia, serif;
+  --font-display-hero-mobile: 'Playfair Display', Georgia, serif;
+  --font-headline-lg: 'Playfair Display', Georgia, serif;
+  --font-headline-md: 'Playfair Display', Georgia, serif;
+  --font-headline-sm: 'Playfair Display', Georgia, serif;
+  --font-subheading-editorial: 'Playfair Display', Georgia, serif;
+  --font-body-lg: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-body-md: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-body-sm: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-label-caps: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-label-meta: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+@layer base {
+  html, body {
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #f7ecee;
+    color: #25181c;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
+  html.dark, html.dark body {
+    background-color: #12090d;
+    color: #fcecee;
+  }
+  
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.sketch-border {
+  box-shadow: 0 0 0 1px #b8975840;
+}
+
+.dark .sketch-border {
+  box-shadow: 0 0 0 1px #b8975877;
+}
+
+.sketch-border-double {
+  box-shadow: 0 0 0 1px #b8975855, 0 0 0 4px #f7ecee, 0 0 0 5px #b8975840;
+}
+
+.dark .sketch-border-double {
+  box-shadow: 0 0 0 1px #b8975888, 0 0 0 4px #1a1014, 0 0 0 5px #b8975855;
+}
+
+/* Custom delicate hand-drawn style animations */
+@keyframes subtle-float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(0.5deg); }
+}
+
+.animate-subtle-float {
+  animation: subtle-float 6s ease-in-out infinite;
+}
+
+/* Hide scrollbars for clean aesthetic */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
