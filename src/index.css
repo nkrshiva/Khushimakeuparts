@@ -5,8 +5,8 @@
 @theme {
   --color-surface: #f7ecee;
   --color-surface-dim: #ebd7dc;
-  --color-surface-container-lowest: #fff9fa;
-  --color-surface-container-low: #fdf4f5;
+  --color-surface-container-lowest: #faeaed;
+  --color-surface-container-low: #f5e4e8;
   --color-surface-container: #f3e2e5;
   --color-surface-container-high: #edd4d9;
   --color-surface-container-highest: #e5c5cc;
@@ -41,6 +41,10 @@
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
   html, body {
     width: 100%;
     margin: 0;
@@ -48,7 +52,7 @@
     background-color: #f7ecee;
     color: #25181c;
     font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition: background-color 0.4s ease, color 0.4s ease;
   }
   
   html.dark, html.dark body {
@@ -80,11 +84,95 @@
 /* Custom delicate hand-drawn style animations */
 @keyframes subtle-float {
   0%, 100% { transform: translateY(0px) rotate(0deg); }
-  50% { transform: translateY(-4px) rotate(0.5deg); }
+  50% { transform: translateY(-5px) rotate(0.6deg); }
+}
+
+@keyframes gentle-pulse {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.02); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .animate-subtle-float {
   animation: subtle-float 6s ease-in-out infinite;
+}
+
+.animate-gentle-pulse {
+  animation: gentle-pulse 4s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+/* Moving Silk & Luxury Background Keyframes */
+@keyframes silk-flow-1 {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+  33% {
+    transform: translate3d(4%, 3%, 0) scale(1.08) rotate(3deg);
+  }
+  66% {
+    transform: translate3d(-3%, 5%, 0) scale(0.96) rotate(-2deg);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes silk-flow-2 {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.05) rotate(-1deg);
+  }
+  50% {
+    transform: translate3d(-5%, -4%, 0) scale(1.12) rotate(4deg);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.05) rotate(-1deg);
+  }
+}
+
+@keyframes bokeh-drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translate3d(25px, -35px, 0) scale(1.2);
+    opacity: 0.9;
+  }
+}
+
+@keyframes ray-shift {
+  0%, 100% {
+    transform: rotate(-15deg) translateY(0) scale(1);
+    opacity: 0.35;
+  }
+  50% {
+    transform: rotate(-8deg) translateY(-20px) scale(1.15);
+    opacity: 0.6;
+  }
+}
+
+.animate-silk-1 {
+  animation: silk-flow-1 22s ease-in-out infinite;
+}
+
+.animate-silk-2 {
+  animation: silk-flow-2 28s ease-in-out infinite reverse;
+}
+
+.animate-bokeh-drift {
+  animation: bokeh-drift 16s ease-in-out infinite;
+}
+
+.animate-ray-shift {
+  animation: ray-shift 18s ease-in-out infinite;
 }
 
 /* Hide scrollbars for clean aesthetic */

@@ -215,22 +215,22 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
 export const VIDEO_SHOWCASE_ITEMS: VideoShowcaseItem[] = [
   {
     id: 'video-1',
-    title: 'Bridal — Full Reveal',
-    subtitle: 'Bare skin to royal glow',
-    tag: 'Reveal',
+    title: 'Royal Bridal — Full Reveal',
+    subtitle: 'Bare skin to royal Bihari radiance',
+    tag: 'Bridal HD',
     duration: '0:45',
-    posterUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBoEo6RYQwLa3sIYS0titRG-P3Eou8TbBMPPRETewa4ff_bAs1LCg3u-xwUfWCOz7CpucD7RHx4m0KQ8h-7WzpQyKNub9TqMlV8VNyFPc2NifK7GLHH6PClYuDQYTMPwV4mdixmZuezQml-1TP08MjESzLncSJNRskMwB6y-8WSRbBIYnO_hRPHkoKo__aRDMzUf7Vd0q4CH9KPg3IiH9PUdb9tJsJqUUAsdwERK3SfF1mf4RwJDR_P',
-    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-beautiful-woman-getting-makeup-done-by-an-artist-41584-large.mp4',
+    posterUrl: 'https://img.youtube.com/vi/5qap5aO4i9A/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/5qap5aO4i9A',
     description: 'Complete transformation video documenting bespoke skin preparation, base layering, and the breath-taking ceremonial reveal.'
   },
   {
     id: 'video-2',
-    title: 'Bridal — Portrait',
-    subtitle: 'Eye & Drape Harmony',
-    tag: 'Portrait',
-    duration: '0:32',
-    posterUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuCWP4utgQaYgf41nsl8HUoCUIhX-W8eFQ-ZxdrVk9BJdrzSQvLgiqqlUpQuPIo_rSRU0JSgfzaGGtb_zenTtncjz8AKPuiOLUMYUH5Zilaai32xemGu1hu_DrmT5oJ1xsC3fdj-smTVAZKmXpirgPLGduAIhCqZdm_IG-wJV0qxDiYB05WuG7Fsi0sSpUbOz9l0He9g7Ic-uGIuAhstbBMAFIWzMDixjhMLDgeyeCobmVFMwPeeSOpQ',
-    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-young-woman-with-face-makeup-closing-her-eyes-41586-large.mp4',
+    title: 'Bridal — Portrait & Lash Harmony',
+    subtitle: 'Eye artistry & double-dupatta drape',
+    tag: 'Eye Artistry',
+    duration: '0:35',
+    posterUrl: 'https://img.youtube.com/vi/3JZ_D3ELwOQ/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/3JZ_D3ELwOQ',
     description: 'Close-up camera sweep highlighting delicate shimmer blending, featherweight lash application, and jewelry balance.'
   },
   {
@@ -238,9 +238,9 @@ export const VIDEO_SHOWCASE_ITEMS: VideoShowcaseItem[] = [
     title: 'Occasion Look',
     subtitle: 'Sangeet & Mehendi glam',
     tag: 'Mehendi',
-    duration: '0:28',
-    posterUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuC1aeg4nRmnb5JV0NlmMGSeplk0kOJ2EdxRdJWXzfbysezQZbJagLp1JYpfAQPPjCLmkFV0n72TdJnjUAfdu-wk7hpcYfum2cWcHJGH89Nu2jhalM3xAc8lZwlewgeC-iaKkzylKcAYfcXFOnJzMiDOMdFN2FJG2uMYPC7hpphfB9X60oyDeTWgktDekIQetQwCzCAoh0doKoVeiL5-WoQU6WpXS6VppzzCiveaitI5w8aCKXC3Qz6r',
-    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-makeup-artist-applying-eye-shadow-on-a-young-woman-41587-large.mp4',
+    duration: '0:30',
+    posterUrl: 'https://img.youtube.com/vi/fkqzlnFsuA4/hqdefault.jpg',
+    videoUrl: 'https://youtube.com/shorts/fkqzlnFsuA4?feature=share',
     description: 'Fresh daytime glow with radiant natural skin, light floral styling, and cheerful movement.'
   },
   {
@@ -249,9 +249,149 @@ export const VIDEO_SHOWCASE_ITEMS: VideoShowcaseItem[] = [
     subtitle: 'Effortless celebration glam',
     tag: 'Party',
     duration: '0:40',
-    posterUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAIJcHgbxG9Pl_chz5uIVlD6HUiAozHJWGCOs785OmXE2wCWwaImTsXxZN64CVgsAOWr3AVBb3bYtaByCW52VEUavrDRD7Au4HUIwIskcJVAaygfo37YNuUdBFLco7xBFEwOlSyqDW0TkvniApx50gDIM983wfprPSRWhpLOkGn7hTIrR4BrjuyaSQOnYgs6pY6foQdDrqQ95QGm05ToqXeXvm6ikED7cbOwUehkJCDTgcRdkj0cP-z',
-    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-makeup-artist-applying-lip-gloss-with-a-brush-to-a-41585-large.mp4',
+    posterUrl: 'https://img.youtube.com/vi/DFCVBMnSMxY/hqdefault.jpg',
+    videoUrl: 'https://youtube.com/shorts/DFCVBMnSMxY?feature=share',
     description: 'Sophisticated evening transformation with berry stained velvet lips and radiant highlight.'
+  },
+  {
+    id: 'video-5',
+    title: 'Haldi & Sangeet Daytime Glow',
+    subtitle: 'Golden turmeric-barrier dewy look',
+    tag: 'Haldi Dew',
+    duration: '0:30',
+    posterUrl: 'https://img.youtube.com/vi/eBGIQ7Utnh4/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/eBGIQ7Utnh4',
+    description: 'Fresh daytime glow with radiant natural skin, light floral styling, and cheerful movement.'
+  },
+  {
+    id: 'video-6',
+    title: 'Cocktail Reception High Glam',
+    subtitle: 'Berry stained velvet lips & contour',
+    tag: 'Evening Glam',
+    duration: '0:40',
+    posterUrl: 'https://img.youtube.com/vi/kJQP7kiw5Fk/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/kJQP7kiw5Fk',
+    description: 'Sophisticated evening transformation with berry stained velvet lips and radiant highlight.'
+  },
+  {
+    id: 'video-7',
+    title: 'Double-Dupatta Draping Artistry',
+    subtitle: 'Secure pleated lehenga setting',
+    tag: 'Draping',
+    duration: '0:28',
+    posterUrl: 'https://img.youtube.com/vi/W1e4yP9r0Fw/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/W1e4yP9r0Fw',
+    description: 'Precision lehenga and dual dupatta pinning crafted for comfort and graceful mandap movement.'
+  },
+  {
+    id: 'video-8',
+    title: 'Glass Skin Hydration Infusion',
+    subtitle: 'Pore-refining pre-makeup base',
+    tag: 'Skin Prep',
+    duration: '0:33',
+    posterUrl: 'https://img.youtube.com/vi/2vjPBrBU-TM/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/2vjPBrBU-TM',
+    description: 'Cellular moisture prep ensuring 16-hour camera endurance and non-cakey finish.'
+  },
+  {
+    id: 'video-9',
+    title: 'Maang Tikka & Matha Patti Setting',
+    subtitle: 'Symmetrical traditional bridal jewelry',
+    tag: 'Jewelry',
+    duration: '0:25',
+    posterUrl: 'https://img.youtube.com/vi/0J2QdDsuZ64/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/0J2QdDsuZ64',
+    description: 'Secure forehead ornamentation styling guaranteeing zero slips throughout rituals.'
+  },
+  {
+    id: 'video-10',
+    title: 'Soft Smokey Rose Glam',
+    subtitle: 'Velvet rose gold cut crease',
+    tag: 'Engagement',
+    duration: '0:36',
+    posterUrl: 'https://img.youtube.com/vi/YQHsXMglC9A/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/YQHsXMglC9A',
+    description: 'Ethereal pastel lookbook transformation complementing romantic evening couture.'
+  },
+  {
+    id: 'video-11',
+    title: 'Pastel Reception Radiance',
+    subtitle: 'Subtle peach shimmer & sculpted cheekbones',
+    tag: 'Reception',
+    duration: '0:38',
+    posterUrl: 'https://img.youtube.com/vi/9bZkp7q19f0/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/9bZkp7q19f0',
+    description: 'Camera-ready romantic look designed for flash photography and chandelier ballroom light.'
+  },
+  {
+    id: 'video-12',
+    title: 'Sunset Haldi Floral Harmony',
+    subtitle: 'Waterproof glow with fresh jasmine braid',
+    tag: 'Floral Glam',
+    duration: '0:30',
+    posterUrl: 'https://img.youtube.com/vi/L_LUpnjgPso/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/L_LUpnjgPso',
+    description: 'Radiant outdoor look engineered to withstand moisture and celebrate natural beauty.'
+  },
+  {
+    id: 'video-13',
+    title: 'Royal Traditional Red Bihari Bridal',
+    subtitle: 'Authentic crimson sindoor & chunri styling',
+    tag: 'Traditional',
+    duration: '0:45',
+    posterUrl: 'https://img.youtube.com/vi/fkqzlnFsuA4/hqdefault.jpg',
+    videoUrl: 'https://youtube.com/shorts/fkqzlnFsuA4',
+    description: 'Timeless Bihar bridal look with rich velvet lehenga, traditional nath and matha patti.'
+  },
+  {
+    id: 'video-14',
+    title: 'Ultra HD Airbrush Finish & Base Prep',
+    subtitle: 'Sweat-resistant 24h glass skin perfection',
+    tag: 'Airbrush HD',
+    duration: '0:35',
+    posterUrl: 'https://img.youtube.com/vi/5qap5aO4i9A/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/5qap5aO4i9A',
+    description: 'Flawless silicone-free micro-misting technique for humid Indian climate wedding rituals.'
+  },
+  {
+    id: 'video-15',
+    title: 'Smudge-Proof Kohl & Arabic Winged Eye',
+    subtitle: 'Dramatic tear-proof ceremony eye makeup',
+    tag: 'Eye Artistry',
+    duration: '0:30',
+    posterUrl: 'https://img.youtube.com/vi/3JZ_D3ELwOQ/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/3JZ_D3ELwOQ',
+    description: 'Deep jet black precision winged liner paired with 3D mink eyelashes and champagne inner corner.'
+  },
+  {
+    id: 'video-16',
+    title: 'Mehendi Ceremony Sunkissed Glow',
+    subtitle: 'Vibrant emerald & coral festive glamour',
+    tag: 'Mehendi Glow',
+    duration: '0:40',
+    posterUrl: 'https://img.youtube.com/vi/DFCVBMnSMxY/hqdefault.jpg',
+    videoUrl: 'https://youtube.com/shorts/DFCVBMnSMxY',
+    description: 'Radiant festival aesthetic that stays vibrant and dewy under direct stage photography.'
+  },
+  {
+    id: 'video-17',
+    title: 'Engagement Glam with Champagne Shimmer',
+    subtitle: 'Contemporary soft glam for ring ceremony',
+    tag: 'Engagement',
+    duration: '0:32',
+    posterUrl: 'https://img.youtube.com/vi/eBGIQ7Utnh4/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/eBGIQ7Utnh4',
+    description: 'Delicate peach tones, sculpted high points, and glossy nude lips crafted for modern brides.'
+  },
+  {
+    id: 'video-18',
+    title: 'Reception Midnight Radiance',
+    subtitle: 'Sculpted cheekbones & metallic bronze lid',
+    tag: 'Reception',
+    duration: '0:38',
+    posterUrl: 'https://img.youtube.com/vi/kJQP7kiw5Fk/hqdefault.jpg',
+    videoUrl: 'https://www.youtube.com/shorts/kJQP7kiw5Fk',
+    description: 'Glamorous evening celebration makeup designed to reflect chandelier light beautifully.'
   }
 ];
 

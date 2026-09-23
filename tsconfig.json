@@ -18,6 +18,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@firebase/firestore": [
+        "./node_modules/@firebase/firestore/dist/firestore/src/api.d.ts"
+      ],
+      "firebase/firestore": [
+        "./node_modules/@firebase/firestore/dist/firestore/src/api.d.ts"
       ]
     },
     "allowImportingTsExtensions": true,

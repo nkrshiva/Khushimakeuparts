@@ -1,0 +1,16 @@
+{
+  "short_name": "KhushiArts",
+  "name": "Khushi Makeup Arts | Luxury Bridal & Occasion",
+  "icons": [
+    {
+      "src": "/logo.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#140b0f",
+  "theme_color": "#6c2e3e",
+  "display": "standalone",
+  "orientation": "portrait"
+}

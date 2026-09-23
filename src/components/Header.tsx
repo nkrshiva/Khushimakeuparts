@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Menu, X, Calendar, Phone, Instagram, Sun, Moon } from 'lucide-react';
-import { BRAND } from '../data/makeupData';
+import { useSiteContent } from '../context/ContentContext';
 import { SketchStar } from './HandDrawnIllustrations';
 import { useTheme } from '../context/ThemeContext';
+import { DEFAULT_SECTIONS_VISIBILITY } from '../data/siteContent';
 
 interface HeaderProps {
   onNavigateToBooking?: (serviceId?: string) => void;
@@ -15,6 +16,8 @@ export const Header: React.FC<HeaderProps> = ({
   onBookClick,
   onNavigate,
 }) => {
+  const { content, isModuleEnabled } = useSiteContent();
+  const { brand } = content;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const { isDark, toggleTheme } = useTheme();
@@ -39,13 +42,15 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, [mobileMenuOpen]);
 
+  const sections = content.sectionsVisibility || DEFAULT_SECTIONS_VISIBILITY;
+
   const navLinks = [
-    { label: 'Services', href: '#services' },
-    { label: 'Portfolio', href: '#lookbook-portfolio' },
-    { label: 'About', href: '#about-khushi' },
-    { label: 'Pricing', href: '#pricing' },
-    { label: 'FAQ', href: '#faq' },
-  ];
+    { label: 'Services & Pricing', href: '#services', show: sections.services !== false },
+    { label: 'Portfolio', href: '#lookbook-portfolio', show: sections.portfolio !== false && isModuleEnabled('bridalPortfolio') },
+    { label: 'Reviews', href: '#bride-testimonials', show: sections.testimonials !== false && isModuleEnabled('reviewsModeration') },
+    { label: 'About', href: '#about-khushi', show: sections.aboutStory !== false },
+    { label: 'FAQ', href: '#faq', show: sections.faqs !== false },
+  ].filter((item) => item.show);
 
   const handleLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
@@ -78,35 +83,34 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header
       id="main-header"
-      className={`sticky top-0 z-40 w-full transition-colors duration-300 ${
+      className={`sticky top-0 z-40 w-full transition-all duration-300 ${
         scrolled
           ? 'bg-[#f7ecee]/95 dark:bg-[#140b0f]/95 backdrop-blur-md shadow-sm border-b border-[#b89758]/30 dark:border-[#b89758]/35 py-2.5'
-          : 'bg-[#f7ecee] dark:bg-[#140b0f] border-b border-[#b89758]/20 dark:border-[#b89758]/30 py-3.5'
+          : 'bg-[#f7ecee]/85 dark:bg-[#140b0f]/85 backdrop-blur-md border-b border-[#b89758]/20 dark:border-[#b89758]/30 py-3.5'
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-        {/* Logo with Monogram and Stylized Typography */}
-        <a
-          href="#"
-          className="flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-[#b89758] rounded-md px-1"
-          aria-label="Khushi Makeup Arts Home"
+        {/* Brand Monogram & Title */}
+        <div
+          onClick={() => onNavigate && onNavigate('root')}
+          className="flex items-center gap-2.5 cursor-pointer group focus:outline-none focus:ring-2 focus:ring-[#b89758] rounded-md px-1"
         >
-          <div className="relative w-10 h-10 rounded-full overflow-hidden border border-[#b89758]/60 dark:border-[#b89758]/80 bg-black flex items-center justify-center p-0.5 shadow-xs transition-transform group-hover:scale-105">
+          <div className="w-8 h-8 rounded-full overflow-hidden bg-black p-0.5 border border-[#b89758]/50 shrink-0">
             <img
-              src={BRAND.logoUrl}
-              alt="Khushi Makeup Arts Logo"
+              src={brand.logoUrl}
+              alt="Logo"
               className="w-full h-full object-cover rounded-full"
             />
           </div>
           <div className="flex flex-col text-left">
-            <span className="font-['Playfair_Display'] text-lg font-medium tracking-tight text-[#6c2e3e] dark:text-[#f8d7df] leading-none">
-              Khushi
+            <span className="font-['Playfair_Display'] text-base sm:text-lg font-normal tracking-tight text-[#6c2e3e] dark:text-[#f8d7df] leading-tight group-hover:text-[#b89758] transition-colors">
+              {brand.name}
             </span>
-            <span className="font-['Plus_Jakarta_Sans'] text-[9px] uppercase tracking-[0.25em] text-[#b89758] dark:text-[#fed488] font-semibold mt-0.5">
-              Makeup Arts
+            <span className="font-['Plus_Jakarta_Sans'] text-[9px] uppercase tracking-widest text-[#8c5f1b] dark:text-[#fed488] font-semibold">
+              {brand.subtitle}
             </span>
           </div>
-        </a>
+        </div>
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-6" aria-label="Main Navigation">
@@ -115,7 +119,7 @@ export const Header: React.FC<HeaderProps> = ({
               key={link.label}
               href={link.href}
               onClick={(e) => handleLinkClick(e, link.href)}
-              className="font-['Plus_Jakarta_Sans'] text-xs uppercase tracking-wider text-[#5a454b] dark:text-[#dfc3c9] hover:text-[#6c2e3e] dark:hover:text-[#fed488] transition-colors relative py-1 group font-medium"
+              className="font-['Plus_Jakarta_Sans'] text-xs uppercase tracking-wider text-[#2d1820] dark:text-[#dfc3c9] hover:text-[#6c2e3e] dark:hover:text-[#fed488] transition-colors relative py-1 group font-semibold"
             >
               {link.label}
               <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-[#b89758] transition-all duration-300 group-hover:w-full" />
@@ -126,8 +130,8 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={toggleTheme}
             aria-label={isDark ? 'Switch to light theme' : 'Switch to luxury dark theme'}
-            title={isDark ? 'Switch to light theme' : 'Switch to luxury dark theme'}
-            className="p-2 rounded-full text-[#6c2e3e] dark:text-[#fed488] bg-[#fff9fa] dark:bg-[#23141a] border border-[#b89758]/35 hover:scale-105 transition-all cursor-pointer shadow-2xs flex items-center justify-center"
+            title={isDark ? 'Switch to romantic pinkish light theme' : 'Switch to royal luxury dark theme'}
+            className="p-2 rounded-full text-[#6c2e3e] dark:text-[#fed488] bg-[#faeaed] dark:bg-[#23141a] border border-[#c48496] dark:border-[#b89758]/35 hover:scale-105 transition-all cursor-pointer shadow-2xs flex items-center justify-center"
           >
             {isDark ? (
               <Sun className="w-4 h-4 text-[#fed488]" />
@@ -150,7 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={toggleTheme}
             aria-label={isDark ? 'Switch to light theme' : 'Switch to luxury dark theme'}
-            className="p-1.5 rounded-full text-[#6c2e3e] dark:text-[#fed488] bg-[#fff9fa] dark:bg-[#23141a] border border-[#b89758]/35 shadow-2xs"
+            className="p-1.5 rounded-full text-[#6c2e3e] dark:text-[#fed488] bg-[#faeaed] dark:bg-[#23141a] border border-[#c48496] dark:border-[#b89758]/35 shadow-2xs"
           >
             {isDark ? <Sun className="w-4 h-4 text-[#fed488]" /> : <Moon className="w-4 h-4 text-[#6c2e3e]" />}
           </button>
@@ -172,33 +176,27 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Mobile Slide-Out Navigation Drawer */}
+      {/* Mobile Drawer Navigation Menu */}
       {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-50 md:hidden bg-black/60 backdrop-blur-xs transition-opacity duration-300"
-          onClick={() => setMobileMenuOpen(false)}
-        >
-          <div
-            className="absolute top-0 right-0 w-[85%] max-w-sm h-full bg-[#f7ecee] dark:bg-[#180e13] shadow-2xl p-6 flex flex-col justify-between border-l border-[#b89758]/30 overflow-y-auto text-[#25181c] dark:text-[#fcecee]"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 md:hidden bg-black/60 backdrop-blur-sm animate-fade-in flex justify-end">
+          <div className="w-[82%] max-w-xs h-full bg-[#f7ecee] dark:bg-[#180e13] border-l border-[#c48496] dark:border-[#b89758]/40 shadow-2xl p-6 flex flex-col justify-between overflow-y-auto">
             <div>
-              {/* Drawer Top Bar */}
-              <div className="flex items-center justify-between border-b border-[#b89758]/25 pb-4 mb-6">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full overflow-hidden border border-[#b89758]/50 bg-black p-0.5 shrink-0">
+              {/* Header inside drawer */}
+              <div className="flex items-center justify-between pb-4 border-b border-[#c48496]/50 dark:border-white/10 mb-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-full overflow-hidden bg-black p-0.5 border border-[#b89758]/50">
                     <img
-                      src={BRAND.logoUrl}
+                      src={brand.logoUrl}
                       alt="Logo"
                       className="w-full h-full object-cover rounded-full"
                     />
                   </div>
                   <div>
                     <h3 className="font-['Playfair_Display'] text-base text-[#6c2e3e] dark:text-[#f8d7df] font-medium leading-none">
-                      Khushi
+                      {brand.founder || 'Khushi'}
                     </h3>
-                    <p className="font-['Plus_Jakarta_Sans'] text-[8px] uppercase tracking-widest text-[#b89758] dark:text-[#fed488]">
-                      Makeup Arts
+                    <p className="font-['Plus_Jakarta_Sans'] text-[8px] uppercase tracking-widest text-[#8c5f1b] dark:text-[#fed488] font-semibold">
+                      {brand.subtitle || 'Makeup Arts'}
                     </p>
                   </div>
                 </div>
@@ -206,7 +204,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <button
                     onClick={toggleTheme}
                     aria-label="Toggle theme"
-                    className="p-1.5 rounded-full text-[#6c2e3e] dark:text-[#fed488] bg-[#fff9fa] dark:bg-[#23141a] border border-[#b89758]/35"
+                    className="p-1.5 rounded-full text-[#6c2e3e] dark:text-[#fed488] bg-[#faeaed] dark:bg-[#23141a] border border-[#c48496] dark:border-[#b89758]/35"
                   >
                     {isDark ? <Sun className="w-4 h-4 text-[#fed488]" /> : <Moon className="w-4 h-4 text-[#6c2e3e]" />}
                   </button>
@@ -249,19 +247,19 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="pt-6 border-t border-[#b89758]/25 flex flex-col gap-3 text-xs text-[#5a454b] dark:text-[#dfc3c9]">
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-[#b89758] dark:text-[#fed488]" />
-                <a href={BRAND.phoneHref} className="hover:underline font-medium text-[#25181c] dark:text-[#fcecee]">
-                  {BRAND.phoneDisplay}
+                <a href={brand.phoneHref} className="hover:underline font-medium text-[#25181c] dark:text-[#fcecee]">
+                  {brand.phoneDisplay}
                 </a>
               </div>
               <div className="flex items-center gap-2">
                 <Instagram className="w-4 h-4 text-[#b89758] dark:text-[#fed488]" />
                 <a
-                  href={BRAND.instagramProfileUrl}
+                  href={brand.instagramProfileUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:underline text-[#25181c] dark:text-[#fcecee]"
                 >
-                  {BRAND.instagram}
+                  {brand.instagram}
                 </a>
               </div>
               <div className="flex items-center gap-1 text-[11px] text-[#b89758] dark:text-[#fed488] font-['Caveat'] text-sm">

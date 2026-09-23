@@ -1,5 +1,5 @@
 import React from 'react';
-import { SERVICES } from '../data/makeupData';
+import { useSiteContent } from '../context/ContentContext';
 import { Calendar, Info, Clock, ArrowRight } from 'lucide-react';
 import { SketchBrush, SketchStar, SketchWavyLine } from './HandDrawnIllustrations';
 
@@ -8,13 +8,15 @@ interface PricingProps {
 }
 
 export const Pricing: React.FC<PricingProps> = ({ onBookService }) => {
+  const { content } = useSiteContent();
+  const SERVICES = (content.services || []).filter((s) => s.hidden !== true);
   return (
-    <section id="pricing" className="w-full px-4 sm:px-6 py-12 sm:py-16 bg-[#fdf4f5] dark:bg-[#180e13] border-y border-[#b89758]/20 dark:border-[#b89758]/35 transition-colors duration-300">
+    <section id="pricing" className="w-full px-4 sm:px-6 py-12 sm:py-16 bg-[#fdf4f5] dark:bg-[#180e13] border-y border-[#c48496]/50 dark:border-[#b89758]/35 transition-colors duration-300">
       <div className="max-w-7xl mx-auto">
         {/* Section Header */}
         <div className="flex flex-col mb-8">
           <div className="flex items-center justify-between">
-            <span className="font-['Plus_Jakarta_Sans'] text-[10px] sm:text-xs text-[#b89758] dark:text-[#fed488] uppercase tracking-[0.2em] font-semibold">
+            <span className="font-['Plus_Jakarta_Sans'] text-[10px] sm:text-xs text-[#8c5f1b] dark:text-[#fed488] uppercase tracking-[0.2em] font-bold">
               Artisanal Menu
             </span>
             <SketchBrush className="w-6 h-6 text-[#6c2e3e] dark:text-[#fed488]" />
@@ -25,10 +27,10 @@ export const Pricing: React.FC<PricingProps> = ({ onBookService }) => {
           </h2>
 
           <div className="my-1.5">
-            <SketchWavyLine className="w-40 sm:w-56 h-2 text-[#b89758]/50 dark:text-[#fed488]/60" />
+            <SketchWavyLine className="w-40 sm:w-56 h-2 text-[#8c5f1b]/40 dark:text-[#fed488]/60" />
           </div>
 
-          <p className="font-['Plus_Jakarta_Sans'] text-xs sm:text-sm text-[#5a454b] dark:text-[#dfc3c9] mt-1 max-w-xl">
+          <p className="font-['Plus_Jakarta_Sans'] text-xs sm:text-sm text-[#382229] dark:text-[#dfc3c9] mt-1 max-w-xl">
             Transparent couture pricing with clear inclusions. Every rate reflects personalized care, hygienic tool kits, and dedicated time on your auspicious day.
           </p>
         </div>
@@ -38,7 +40,7 @@ export const Pricing: React.FC<PricingProps> = ({ onBookService }) => {
           {SERVICES.map((item) => (
             <div
               key={item.id}
-              className="p-5 rounded-3xl bg-[#fff9fa] dark:bg-[#1f1217] shadow-xs hover:shadow-md transition-all duration-300 flex flex-col justify-between border border-[#b89758]/35 dark:border-[#b89758]/45 group"
+              className="p-5 rounded-3xl bg-white dark:bg-[#1f1217] shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col justify-between border border-[#c48496] dark:border-[#b89758]/45 group"
             >
               <div>
                 <div className="flex items-start justify-between mb-2">
@@ -46,7 +48,7 @@ export const Pricing: React.FC<PricingProps> = ({ onBookService }) => {
                     <h3 className="font-['Playfair_Display'] text-lg sm:text-xl text-[#6c2e3e] dark:text-[#f8d7df] font-medium">
                       {item.title}
                     </h3>
-                    <p className="font-['Playfair_Display'] text-xs text-[#b89758] dark:text-[#fed488] italic">
+                    <p className="font-['Playfair_Display'] text-xs text-[#8c5f1b] dark:text-[#fed488] italic">
                       “{item.tagline}”
                     </p>
                   </div>
@@ -54,20 +56,20 @@ export const Pricing: React.FC<PricingProps> = ({ onBookService }) => {
                     <span className="font-['Playfair_Display'] text-xl sm:text-2xl text-[#6c2e3e] dark:text-[#fed488] font-semibold">
                       {item.price}
                     </span>
-                    <span className="font-['Plus_Jakarta_Sans'] text-[10px] text-[#b89758] dark:text-[#dfc3c9] flex items-center gap-1 mt-0.5">
+                    <span className="font-['Plus_Jakarta_Sans'] text-[10px] text-[#8c5f1b] dark:text-[#dfc3c9] flex items-center gap-1 mt-0.5 font-medium">
                       <Clock className="w-3 h-3" />
                       {item.duration}
                     </span>
                   </div>
                 </div>
 
-                <p className="font-['Plus_Jakarta_Sans'] text-xs text-[#5a454b] dark:text-[#dfc3c9] mt-2 leading-relaxed">
+                <p className="font-['Plus_Jakarta_Sans'] text-xs text-[#382229] dark:text-[#dfc3c9] mt-2 leading-relaxed">
                   {item.description}
                 </p>
               </div>
 
-              <div className="mt-5 pt-3 border-t border-[#b89758]/20 dark:border-[#b89758]/35 flex items-center justify-between">
-                <span className="font-['Caveat'] text-sm text-[#b89758] dark:text-[#fed488]">
+              <div className="mt-5 pt-3 border-t border-[#c48496]/30 dark:border-[#b89758]/35 flex items-center justify-between">
+                <span className="font-['Caveat'] text-sm text-[#8c5f1b] dark:text-[#fed488] font-semibold">
                   Siwan Doorstep Vanity
                 </span>
                 <button
@@ -83,9 +85,9 @@ export const Pricing: React.FC<PricingProps> = ({ onBookService }) => {
         </div>
 
         {/* Travel Note as required by prompt */}
-        <div className="mt-6 p-4 rounded-2xl bg-[#f3e2e5] dark:bg-[#25141d] flex items-start gap-3 border border-[#b89758]/35 dark:border-[#b89758]/45 max-w-2xl mx-auto shadow-2xs">
-          <Info className="w-5 h-5 text-[#b89758] dark:text-[#fed488] shrink-0 mt-0.5" />
-          <div className="text-left font-['Plus_Jakarta_Sans'] text-xs text-[#5a454b] dark:text-[#dfc3c9] leading-relaxed">
+        <div className="mt-6 p-4 rounded-2xl bg-white dark:bg-[#25141d] flex items-start gap-3 border border-[#c48496] dark:border-[#b89758]/45 max-w-2xl mx-auto shadow-sm">
+          <Info className="w-5 h-5 text-[#8c5f1b] dark:text-[#fed488] shrink-0 mt-0.5" />
+          <div className="text-left font-['Plus_Jakarta_Sans'] text-xs text-[#382229] dark:text-[#dfc3c9] leading-relaxed">
             <strong className="text-[#6c2e3e] dark:text-[#fed488]">Important Note:</strong> Travel charges are not included. Home-service makeup is available across Siwan. Travel outside Siwan can be arranged depending on booking requirements and distance.
           </div>
         </div>

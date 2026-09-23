@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── HELPER FUNCTIONS ───────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role-based Master Developer check (Zero hardcoded emails or Khushi assumptions)
+    function isDeveloper() {
+      return isSignedIn() && (
+        request.auth.token.role == 'developer' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'developer')
+      );
+    }
+
+    // Checks if the user is authorized to manage a specific client tenant website
+    function isTenantOwner(clientId) {
+      return isSignedIn() && (
+        isDeveloper() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedClientId == clientId)
+      );
+    }
+
+    // ─── CLIENT TENANTS & WEBSITES ──────────────────────────────────────────
+
+    match /clients/{clientId} {
+      // Public visitors can read salon website content to view portfolios & pricing
+      allow read: if true;
+
+      // Only authorized tenant owner or developer can edit website content
+      // STRICT SECURITY: Forbid storing operational data or private staff PII in public parent document
+      allow create, update: if isTenantOwner(clientId) &&
+        !request.resource.data.keys().hasAny(['appointments', 'enquiries', 'staff_private']) &&
+        (!('content' in request.resource.data) || !request.resource.data.content.keys().hasAny(['appointments', 'enquiries', 'staff_private']));
+      
+      allow delete: if isDeveloper();
+
+      // 1. Time-slot appointments subcollection (isolated per tenant)
+      match /appointments/{appointmentId} {
+        // Public visitors can book salon/parlour appointments
+        allow create: if request.resource.data.clientId == clientId &&
+          request.resource.data.keys().hasAll(['customerName', 'customerPhone', 'serviceId', 'date', 'timeSlot', 'startMinute', 'endMinute', 'status']) &&
+          request.resource.data.status in ['pending', 'confirmed'];
+        // Only the tenant owner or master developer can view customer PII, update status, or delete appointments
+        allow read, update, delete: if isTenantOwner(clientId);
+      }
+
+      // 2. Deterministic atomic slot locks (concurrency protection)
+      match /slot_locks/{lockId} {
+        // Public visitors and transactions can read locks to verify availability
+        allow read: if true;
+        // Creation strictly permitted ONLY if lock document does not already exist,
+        // matches the parent tenant's clientId, has required fields, and valid minute boundaries
+        allow create: if !exists(/databases/$(database)/documents/clients/$(clientId)/slot_locks/$(lockId)) &&
+          request.resource.data.clientId == clientId &&
+          request.resource.data.appointmentId is string &&
+          request.resource.data.staffId is string &&
+          request.resource.data.date is string &&
+          request.resource.data.blockMinute is int &&
+          request.resource.data.blockMinute >= 0 &&
+          request.resource.data.blockMinute < 1440;
+        // Direct modification is forbidden to preserve lock integrity
+        allow update: if false;
+        // Only the tenant owner or developer can delete locks (upon appointment cancellation/deletion)
+        allow delete: if isTenantOwner(clientId);
+      }
+
+      // 3. Anonymized busy intervals (zero customer PII - used for public conflict detection)
+      match /busy_slots/{slotId} {
+        allow read: if true;
+        allow create: if request.resource.data.clientId == clientId &&
+          request.resource.data.keys().hasAll(['date', 'startMinute', 'endMinute']) &&
+          !request.resource.data.keys().hasAny(['customerName', 'customerPhone', 'customerEmail', 'notes']);
+        allow update, delete: if isTenantOwner(clientId);
+      }
+
+      // 4. Lead enquiries subcollection (isolated per tenant)
+      match /enquiries/{enquiryId} {
+        // Brides & public visitors can submit booking enquiries
+        allow create: if request.resource.data.clientId == clientId &&
+          request.resource.data.keys().hasAll(['name', 'phone', 'eventType', 'eventDate']);
+        // Only the tenant owner or master developer can view, update status, or delete enquiries
+        allow read, update, delete: if isTenantOwner(clientId);
+      }
+
+      // 5. Private staff operational records (internal notes, private phone, salary)
+      match /staff_private/{staffId} {
+        allow read, write: if isTenantOwner(clientId);
+      }
+
+      // 6. Public staff team members subcollection (public-safe fields)
+      match /staff/{staffId} {
+        allow read: if true;
+        allow write: if isTenantOwner(clientId);
+      }
+
+      // 7. Public bride review submissions
+      match /pending_reviews/{reviewId} {
+        allow create: if true;
+        allow read, update, delete: if isTenantOwner(clientId);
+      }
+    }
+
+    // ─── USER PROFILES & RBAC (PRIVILEGE ESCALATION SHIELD) ─────────────────
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isDeveloper());
+      allow delete: if isDeveloper();
+
+      allow create: if isSignedIn() && (
+        isDeveloper() ||
+        (request.auth.uid == userId &&
+         request.resource.data.role != 'developer' &&
+         (!('assignedClientId' in request.resource.data) || request.resource.data.assignedClientId == null))
+      );
+
+      allow update: if isSignedIn() && (
+        isDeveloper() ||
+        (request.auth.uid == userId &&
+         request.resource.data.role == resource.data.role &&
+         request.resource.data.assignedClientId == resource.data.assignedClientId)
+      );
+    }
+
+    // ─── GLOBAL SYSTEM SETTINGS & REGISTRY ──────────────────────────────────
+
+    match /settings/{settingDoc} {
+      allow read: if true;
+      allow write: if isDeveloper();
+    }
+  }
+}
