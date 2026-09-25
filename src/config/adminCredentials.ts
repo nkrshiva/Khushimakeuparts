@@ -19,13 +19,14 @@ export interface AdminAccountConfig {
   clientId?: string;
 }
 
-// Optional platform bootstrap developer emails from environment variable for initial development setup
-export const PLATFORM_BOOTSTRAP_DEVELOPER_EMAILS: string[] = (
-  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_PLATFORM_DEVELOPER_EMAILS) || ''
-)
-  .split(',')
-  .map((e: string) => e.trim().toLowerCase())
-  .filter(Boolean);
+// Platform bootstrap developer emails (default + environment variable)
+export const PLATFORM_BOOTSTRAP_DEVELOPER_EMAILS: string[] = [
+  'admin@khushimakeup.com',
+  ...((typeof import.meta !== 'undefined' && import.meta.env?.VITE_PLATFORM_DEVELOPER_EMAILS) || '')
+    .split(',')
+    .map((e: string) => e.trim().toLowerCase())
+    .filter(Boolean),
+];
 
 export const isBootstrapDeveloperEmail = (email?: string | null): boolean => {
   if (!email) return false;
