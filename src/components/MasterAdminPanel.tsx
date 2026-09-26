@@ -20,13 +20,21 @@ import {
   Instagram,
   MapPin,
   LogOut,
-  RefreshCw
+  RefreshCw,
+  Mail,
+  Send,
+  Clock,
+  RotateCcw,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useSiteContent } from '../context/ContentContext';
 import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import { authorizationService } from '../services/auth/AuthorizationService';
-import { ClientTenantSummary, BusinessArchetype, TenantLifecycleStatus } from '../types';
+import { tenantService } from '../services/tenant';
+import { invitationDeliveryService } from '../services/invitation/InvitationDeliveryService';
+import { ClientTenantSummary, BusinessArchetype, TenantLifecycleStatus, TenantInvitation } from '../types';
 import { ARCHETYPE_PRESETS } from '../data/archetypePresets';
 
 interface MasterAdminPanelProps {
@@ -43,6 +51,8 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   const {
     clientsList,
     createClientSite,
+    resendTenantInvitation,
+    revokeTenantInvitation,
     setTenantLifecycleStatus,
     permanentDeleteTenant,
     isFirebaseConnected,
@@ -65,6 +75,7 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
     phone: string;
     instagram: string;
     customDomain: string;
+    invitedOwnerEmail: string;
     archetype: BusinessArchetype;
   }>({
     name: '',
@@ -73,8 +84,24 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
     phone: '',
     instagram: '',
     customDomain: '',
+    invitedOwnerEmail: '',
     archetype: 'solo_mua',
   });
+
+  // Invitation Success & Feedback Dialog State
+  const [invitationSuccessDialog, setInvitationSuccessDialog] = useState<{
+    tenantName: string;
+    clientId: string;
+    invitedEmail: string;
+    invitationId?: string;
+    token?: string;
+    emailSent: boolean;
+    emailError?: string;
+  } | null>(null);
+
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [isResendingForClientId, setIsResendingForClientId] = useState<string | null>(null);
+  const [isRevokingForClientId, setIsRevokingForClientId] = useState<string | null>(null);
 
   // Permanent Delete Modal State
   const [deleteTarget, setDeleteTarget] = useState<ClientTenantSummary | null>(null);
@@ -126,32 +153,134 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   // Handle Provisioning
   const handleCreateTenant = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTenantForm.name.trim()) {
+    const cleanName = newTenantForm.name.trim();
+    if (!cleanName) {
       showNotice('error', 'Salon / Brand name is required.');
       return;
     }
+    const cleanEmail = newTenantForm.invitedOwnerEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showNotice('error', 'A valid Owner Email is required for tenant onboarding.');
+      return;
+    }
+
     setIsCreating(true);
     try {
-      const res = await createClientSite(newTenantForm);
-      if (res.success && res.id) {
-        showNotice('success', `🎉 Provisioned tenant "${newTenantForm.name}" (ID: ${res.id}) successfully!`);
-        setShowCreateModal(false);
-        setNewTenantForm({
-          name: '',
-          founder: '',
-          city: '',
-          phone: '',
-          instagram: '',
-          customDomain: '',
-          archetype: 'solo_mua',
-        });
-      } else {
+      // 1. Provision Tenant in Firestore (PENDING_INVITATION status, active: false)
+      const res = await createClientSite({
+        ...newTenantForm,
+        name: cleanName,
+        invitedOwnerEmail: cleanEmail,
+      });
+
+      if (!res.success || !res.id) {
         showNotice('error', res.error || 'Failed to provision tenant.');
+        setIsCreating(false);
+        return;
       }
+
+      setShowCreateModal(false);
+      setNewTenantForm({
+        name: '',
+        founder: '',
+        city: '',
+        phone: '',
+        instagram: '',
+        customDomain: '',
+        invitedOwnerEmail: '',
+        archetype: 'solo_mua',
+      });
+
+      // 2. Dispatch Onboarding Invitation Email via Resend
+      let emailSent = false;
+      let emailError: string | undefined;
+
+      if (res.invitation) {
+        const emailRes = await invitationDeliveryService.sendInvitationEmail({
+          invitationId: res.invitation.invitationId,
+          token: res.invitation.token,
+        });
+
+        if (emailRes.success) {
+          emailSent = true;
+          showNotice('success', `🎉 Provisioned "${cleanName}" and sent invitation email to ${cleanEmail}!`);
+        } else {
+          emailError = emailRes.error || 'Failed to deliver invitation email.';
+          showNotice('error', `Tenant provisioned, but email failed: ${emailError}`);
+        }
+      }
+
+      // 3. Open informative success dialog
+      setInvitationSuccessDialog({
+        tenantName: cleanName,
+        clientId: res.id,
+        invitedEmail: cleanEmail,
+        invitationId: res.invitation?.invitationId,
+        token: res.invitation?.token,
+        emailSent,
+        emailError,
+      });
     } catch (err: any) {
       showNotice('error', 'Provisioning error: ' + (err?.message || err));
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  // Handle Resending an Invitation
+  const handleResendInvitation = async (tenant: ClientTenantSummary) => {
+    const email = tenant.invitedOwnerEmail;
+    if (!email) {
+      showNotice('error', 'No invited owner email address recorded for this tenant.');
+      return;
+    }
+
+    setIsResendingForClientId(tenant.id);
+    try {
+      const res = await resendTenantInvitation(tenant.id, email);
+      if (!res.success || !res.invitation) {
+        showNotice('error', res.error || 'Failed to generate new invitation.');
+        return;
+      }
+
+      const emailRes = await invitationDeliveryService.sendInvitationEmail({
+        invitationId: res.invitation.invitationId,
+        token: res.invitation.token,
+      });
+
+      if (emailRes.success) {
+        showNotice('success', `📬 Fresh invitation sent to ${email} (prior link invalidated).`);
+      } else {
+        showNotice('error', `Fresh invitation created, but email delivery failed: ${emailRes.error}`);
+      }
+    } catch (err: any) {
+      showNotice('error', 'Error resending invitation: ' + (err?.message || err));
+    } finally {
+      setIsResendingForClientId(null);
+    }
+  };
+
+  // Handle Revoking an Invitation
+  const handleRevokeInvitation = async (tenant: ClientTenantSummary) => {
+    if (
+      !confirm(
+        `Are you sure you want to revoke the pending invitation for "${tenant.name}"? The recipient will not be able to activate this tenant.`
+      )
+    ) {
+      return;
+    }
+
+    setIsRevokingForClientId(tenant.id);
+    try {
+      const pendingList = await tenantService.getPendingInvitationsForTenant(tenant.id);
+      for (const inv of pendingList) {
+        await revokeTenantInvitation(inv.invitationId);
+      }
+      showNotice('success', `Pending invitation for "${tenant.name}" has been revoked.`);
+    } catch (err: any) {
+      showNotice('error', 'Error revoking invitation: ' + (err?.message || err));
+    } finally {
+      setIsRevokingForClientId(null);
     }
   };
 
@@ -385,6 +514,14 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                               <Phone className="w-3 h-3 text-purple-400" />
                               <span>{tenant.phone}</span>
                             </div>
+                            {tenant.invitedOwnerEmail && (
+                              <div className="text-amber-300/80 flex items-center gap-1 font-mono text-[10px] pt-0.5">
+                                <Mail className="w-3 h-3 text-amber-400 shrink-0" />
+                                <span className="truncate max-w-[170px]" title={tenant.invitedOwnerEmail}>
+                                  {tenant.invitedOwnerEmail}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </td>
 
@@ -394,6 +531,12 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-semibold text-[10px] uppercase">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                               Active
+                            </span>
+                          )}
+                          {status === 'pending_invitation' && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-500/40 font-semibold text-[10px] uppercase">
+                              <Clock className="w-3 h-3 text-amber-400" />
+                              Pending Invite
                             </span>
                           )}
                           {status === 'suspended' && (
@@ -413,6 +556,28 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                         {/* Actions */}
                         <td className="px-5 py-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            {/* Resend & Revoke Invitation (Available for Pending Tenants) */}
+                            {status === 'pending_invitation' && (
+                              <>
+                                <button
+                                  onClick={() => handleResendInvitation(tenant)}
+                                  disabled={isResendingForClientId === tenant.id}
+                                  className="p-1.5 bg-amber-950/70 hover:bg-amber-900 text-amber-300 border border-amber-500/40 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                                  title="Resend Invitation Email (revokes prior link and dispatches fresh one)"
+                                >
+                                  <RotateCcw className={`w-3.5 h-3.5 ${isResendingForClientId === tenant.id ? 'animate-spin' : ''}`} />
+                                </button>
+                                <button
+                                  onClick={() => handleRevokeInvitation(tenant)}
+                                  disabled={isRevokingForClientId === tenant.id}
+                                  className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                                  title="Revoke Pending Invitation"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+
                             {/* Manage Tenant Admin */}
                             <button
                               onClick={() => {
@@ -445,7 +610,7 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                               >
                                 <PauseCircle className="w-3.5 h-3.5" />
                               </button>
-                            ) : (
+                            ) : status === 'suspended' ? (
                               <button
                                 onClick={() => handleToggleLifecycle(tenant, 'active')}
                                 className="p-1.5 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-500/30 rounded-lg transition-colors cursor-pointer"
@@ -453,7 +618,7 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                               >
                                 <PlayCircle className="w-3.5 h-3.5" />
                               </button>
-                            )}
+                            ) : null}
 
                             {/* Archive */}
                             {status !== 'archived' && (
@@ -603,6 +768,23 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
 
               <div>
                 <label className="block text-purple-200/80 font-medium mb-1">
+                  Owner Email *
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. owner@salon.com"
+                  value={newTenantForm.invitedOwnerEmail}
+                  onChange={(e) => setNewTenantForm({ ...newTenantForm, invitedOwnerEmail: e.target.value })}
+                  className="w-full bg-[#120813] border border-white/15 rounded-xl px-3 py-2 text-white placeholder-white/30 focus:outline-none focus:border-purple-400"
+                />
+                <span className="text-[11px] text-purple-300/60 mt-1 block">
+                  An invitation link will be sent to this email address. The recipient must sign in with this Google account to accept ownership.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-purple-200/80 font-medium mb-1">
                   Custom Domain (Optional)
                 </label>
                 <input
@@ -625,12 +807,138 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-5 py-2 bg-gradient-to-r from-purple-600 to-[#b89758] text-white rounded-xl font-medium shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2 bg-gradient-to-r from-purple-600 to-[#b89758] text-white rounded-xl font-medium shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-2"
                 >
-                  {isCreating ? 'Provisioning...' : 'Provision Tenant'}
+                  {isCreating ? (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Provisioning & Sending...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Create Tenant & Send Invitation</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Provisioning & Invitation Success Dialog ── */}
+      {invitationSuccessDialog && (
+        <div className="fixed inset-0 z-70 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#1b101e] border border-purple-500/40 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                {invitationSuccessDialog.emailSent ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-amber-400" />
+                )}
+                <h3 className="font-['Playfair_Display'] text-lg font-medium text-white">
+                  {invitationSuccessDialog.emailSent
+                    ? 'Tenant Provisioned & Invitation Sent!'
+                    : 'Tenant Provisioned (Action Required)'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setInvitationSuccessDialog(null)}
+                className="text-purple-300/60 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 rounded-2xl bg-black/40 border border-white/10 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-300/60">Salon Workspace:</span>
+                  <span className="font-bold text-white text-sm">{invitationSuccessDialog.tenantName}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-300/60">Tenant ID:</span>
+                  <code className="text-purple-300 font-mono">{invitationSuccessDialog.clientId}</code>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-300/60">Invited Owner Email:</span>
+                  <span className="font-mono text-amber-300">{invitationSuccessDialog.invitedEmail}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-purple-300/60">Initial Status:</span>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-500/40 font-semibold text-[10px] uppercase">
+                    Pending Invitation (Inactive)
+                  </span>
+                </div>
+              </div>
+
+              {invitationSuccessDialog.emailSent ? (
+                <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 space-y-1">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    Transactional Email Delivered via Resend
+                  </div>
+                  <p className="text-[11px] text-emerald-200/80">
+                    The owner has been emailed. Once they sign in with their Google account and accept, the tenant site will automatically transition to ACTIVE.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 space-y-2">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                    Automatic Email Delivery Incomplete
+                  </div>
+                  <p className="text-[11px] text-amber-200/80">
+                    {invitationSuccessDialog.emailError || 'The email could not be dispatched automatically.'}
+                  </p>
+                  <p className="text-[11px] text-purple-200/70">
+                    The tenant is safely created in <code>pending_invitation</code> status. You can share the invitation link directly or resend from the dashboard once configured.
+                  </p>
+                </div>
+              )}
+
+              {/* Direct Invitation Link */}
+              {invitationSuccessDialog.invitationId && invitationSuccessDialog.token && (
+                <div className="space-y-1.5 pt-1">
+                  <label className="block text-purple-200/70 font-semibold">
+                    Direct Invitation URL (Single-Use, 72h Expiry):
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={`${window.location.origin}/?inviteId=${invitationSuccessDialog.invitationId}&token=${invitationSuccessDialog.token}&client=${invitationSuccessDialog.clientId}`}
+                      className="w-full bg-black/50 border border-purple-500/30 rounded-xl px-3 py-2 text-white font-mono text-[11px] focus:outline-none select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = `${window.location.origin}/?inviteId=${invitationSuccessDialog.invitationId}&token=${invitationSuccessDialog.token}&client=${invitationSuccessDialog.clientId}`;
+                        navigator.clipboard.writeText(link);
+                        setCopiedLink(true);
+                        setTimeout(() => setCopiedLink(false), 3000);
+                      }}
+                      className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-medium shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      {copiedLink ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                      <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setInvitationSuccessDialog(null)}
+                className="px-5 py-2 bg-gradient-to-r from-purple-600 to-[#b89758] text-white rounded-xl font-medium text-xs shadow-md hover:from-purple-500 hover:to-[#cbb075] transition-all cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

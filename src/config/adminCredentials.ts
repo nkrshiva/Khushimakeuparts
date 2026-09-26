@@ -21,15 +21,17 @@ export interface AdminAccountConfig {
   clientId?: string;
 }
 
-export const MASTER_ADMIN_EMAIL = 'naveen.kr.shiva@gmail.com';
+export const MASTER_ADMIN_EMAIL = (
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_MASTER_DEVELOPER_EMAIL) ||
+  (typeof process !== 'undefined' && (process.env?.MASTER_DEVELOPER_EMAIL || process.env?.VITE_MASTER_DEVELOPER_EMAIL)) ||
+  ''
+).toLowerCase().trim();
 
-// Authoritative Master Developer identity (Naveen.kr.shiva@gmail.com only)
-export const PLATFORM_BOOTSTRAP_DEVELOPER_EMAILS: string[] = [
-  MASTER_ADMIN_EMAIL,
-];
+// Authoritative Master Developer identity list
+export const PLATFORM_BOOTSTRAP_DEVELOPER_EMAILS: string[] = MASTER_ADMIN_EMAIL ? [MASTER_ADMIN_EMAIL] : [];
 
 export const isBootstrapDeveloperEmail = (email?: string | null): boolean => {
-  if (!email) return false;
+  if (!email || !MASTER_ADMIN_EMAIL) return false;
   const cleanEmail = email.trim().toLowerCase();
   return cleanEmail === MASTER_ADMIN_EMAIL;
 };

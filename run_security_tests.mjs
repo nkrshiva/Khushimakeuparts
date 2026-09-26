@@ -20,6 +20,7 @@ function createMockToken(uid, customClaims = {}) {
 
 function toFirestoreValue(val) {
   if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'object' && val !== null && (val.timestampValue || val.stringValue || val.integerValue)) return val;
   if (typeof val === 'boolean') return { booleanValue: val };
   if (typeof val === 'number') {
     if (Number.isInteger(val)) return { integerValue: val.toString() };
@@ -67,6 +68,18 @@ async function apiDelete(docPath, token = null) {
   const res = await fetch(`${BASE_URL}/${docPath}`, { method: 'DELETE', headers });
   return res.status;
 }
+
+async function apiCommit(writes, token = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`http://${HOST}/v1/projects/${PROJECT_ID}/databases/(default)/documents:commit`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ writes })
+  });
+  return res.status;
+}
+
 
 
 // Admin Seeding (Bearer owner bypasses security rules in Firestore Emulator)
@@ -134,6 +147,13 @@ async function run() {
     employeeId: 'emp-01',
     permissions: ['view_schedule']
   });
+  await seedDoc('users/employee_b_uid', {
+    role: 'employee',
+    email: 'employee_b@salon.com',
+    assignedClientId: 'salon-b',
+    employeeId: 'emp-b-01',
+    permissions: ['view_schedule']
+  });
   await seedDoc('users/unassigned_uid', {
     role: 'client',
     email: 'unassigned@user.com',
@@ -192,6 +212,7 @@ async function run() {
   const tokenClientB = createMockToken('client_b_uid', { email: 'client_b@salon.com' });
   const tokenDev = createMockToken('developer_uid', { email: MASTER_ADMIN_EMAIL });
   const tokenEmployeeA = createMockToken('employee_a_uid', { email: 'employee_a@salon.com' });
+  const tokenEmployeeB = createMockToken('employee_b_uid', { email: 'employee_b@salon.com' });
   const tokenUnassigned = createMockToken('unassigned_uid', { email: 'unassigned@user.com' });
   const tokenOtherUser = createMockToken('other_user_uid', { email: 'other@gmail.com' });
 
@@ -956,10 +977,763 @@ async function run() {
   );
 
   // ==========================================================================
+  // SECTION H: STEP 21 TENANT OWNER VS EMPLOYEE RBAC AND BOUNDARY ENFORCEMENT
+  // ==========================================================================
+  console.log('\nExecuting Section H: Tenant Owner vs Employee RBAC and Boundaries...');
+
+  // 1. Tenant Owner Client A can create an employee user profile for salon-a
+  recordTest('S21-01', 'Tenant Owner Client A can create employee profile in /users/new_emp_a_uid', 'ALLOW',
+    await apiPatch('users/new_emp_a_uid', {
+      role: 'employee',
+      email: 'new_emp@salon.com',
+      assignedClientId: 'salon-a',
+      permissions: ['view_schedule']
+    }, tokenClientA)
+  );
+
+  // 2. Tenant Owner Client A denied creating a user with elevated role 'client'
+  recordTest('S21-02', 'Tenant Owner Client A denied creating user with elevated role client', 'DENY',
+    await apiPatch('users/forged_client_uid', {
+      role: 'client',
+      email: 'forged_client@salon.com',
+      assignedClientId: 'salon-a'
+    }, tokenClientA)
+  );
+
+  // 3. Tenant Owner Client A denied creating a user with elevated role 'developer'
+  recordTest('S21-03', 'Tenant Owner Client A denied creating user with elevated role developer', 'DENY',
+    await apiPatch('users/forged_dev_uid', {
+      role: 'developer',
+      email: 'forged_dev@salon.com',
+      assignedClientId: null
+    }, tokenClientA)
+  );
+
+  // 4. Tenant Owner Client A denied creating an employee for salon-b
+  recordTest('S21-04', 'Tenant Owner Client A denied creating employee for salon-b', 'DENY',
+    await apiPatch('users/new_emp_b_by_a', {
+      role: 'employee',
+      email: 'emp_b_by_a@salon.com',
+      assignedClientId: 'salon-b',
+      permissions: ['view_schedule']
+    }, tokenClientA)
+  );
+
+  // 5. Tenant Owner Client A can update delegated permissions on employee A (assigned to salon-a)
+  recordTest('S21-05', 'Tenant Owner Client A can update permissions on employee A', 'ALLOW',
+    await apiPatch('users/employee_a_uid', {
+      role: 'employee',
+      assignedClientId: 'salon-a',
+      permissions: ['view_schedule', 'manage_appointments']
+    }, tokenClientA)
+  );
+
+  // 6. Tenant Owner Client A denied altering employee A role to developer
+  recordTest('S21-06', 'Tenant Owner Client A denied elevating employee A role to developer', 'DENY',
+    await apiPatch('users/employee_a_uid', {
+      role: 'developer',
+      assignedClientId: 'salon-a'
+    }, tokenClientA)
+  );
+
+  // 7. Tenant Owner Client A denied reassigning employee A to salon-b
+  recordTest('S21-07', 'Tenant Owner Client A denied altering employee A assignedClientId to salon-b', 'DENY',
+    await apiPatch('users/employee_a_uid', {
+      role: 'employee',
+      assignedClientId: 'salon-b'
+    }, tokenClientA)
+  );
+
+  // 8. Tenant Owner Client A denied updating employee B profile (assigned to salon-b)
+  recordTest('S21-08', 'Tenant Owner Client A denied updating employee B profile', 'DENY',
+    await apiPatch('users/employee_b_uid', {
+      role: 'employee',
+      assignedClientId: 'salon-b',
+      permissions: ['view_schedule', 'manage_appointments']
+    }, tokenClientA)
+  );
+
+  // 9. Tenant Employee A denied updating salon-a website content
+  recordTest('S21-09', 'Tenant Employee A denied updating salon-a website content', 'DENY',
+    await apiPatch('clients/salon-a', {
+      content: { brand: { name: 'Hacked by Employee' } }
+    }, tokenEmployeeA)
+  );
+
+  // 10. Tenant Employee A denied accessing customer CRM directory
+  recordTest('S21-10', 'Tenant Employee A denied reading customer CRM directory', 'DENY',
+    await apiGet('clients/salon-a/customers/cust-seed-1', tokenEmployeeA)
+  );
+
+  // 11. Tenant Employee A denied accessing private staff operational records
+  recordTest('S21-11', 'Tenant Employee A denied accessing private staff records', 'DENY',
+    await apiGet('clients/salon-a/staff_private/staff-seed-1', tokenEmployeeA)
+  );
+
+  // 12. Tenant Employee A can read salon-a appointments
+  recordTest('S21-12', 'Tenant Employee A can read salon-a appointments', 'ALLOW',
+    await apiGet('clients/salon-a/appointments/apt-seed-1', tokenEmployeeA)
+  );
+
+  // 13. Tenant Employee A denied reading salon-b appointments
+  recordTest('S21-13', 'Tenant Employee A denied reading salon-b appointments', 'DENY',
+    await apiGet('clients/salon-b/appointments/apt-seed-2', tokenEmployeeA)
+  );
+
+  // 14. Tenant Employee A can update appointment status on salon-a appointment
+  recordTest('S21-14', 'Tenant Employee A can update appointment status on salon-a', 'ALLOW',
+    await apiPatch('clients/salon-a/appointments/apt-seed-1', {
+      status: 'confirmed',
+      notes: 'Confirmed by employee'
+    }, tokenEmployeeA)
+  );
+
+  // 15. Tenant Employee A denied deleting salon-a appointment
+  recordTest('S21-15', 'Tenant Employee A denied deleting salon-a appointment', 'DENY',
+    await apiDelete('clients/salon-a/appointments/apt-seed-1', tokenEmployeeA)
+  );
+
+  // 16. Tenant Employee A denied deleting salon-a slot lock
+  recordTest('S21-16', 'Tenant Employee A denied deleting salon-a slot lock', 'DENY',
+    await apiDelete('clients/salon-a/slot_locks/existing_lock', tokenEmployeeA)
+  );
+
+  // 17. Tenant Owner Client A can delete employee profile in their own tenant
+  recordTest('S21-17', 'Tenant Owner Client A can delete employee in their own tenant', 'ALLOW',
+    await apiDelete('users/new_emp_a_uid', tokenClientA)
+  );
+
+  // 18. Tenant Owner Client A denied deleting employee B profile (salon-b)
+  recordTest('S21-18', 'Tenant Owner Client A denied deleting employee B in salon-b', 'DENY',
+    await apiDelete('users/employee_b_uid', tokenClientA)
+  );
+
+  // ==========================================================================
+  // SECTION I: STEP 22 DEVELOPER PROFILE BOOTSTRAP & TENANT CREATION AUTHORIZATION
+  // ==========================================================================
+  console.log('\nExecuting Section I: Developer Profile Bootstrap & Provisioning Authorization...');
+
+  const freshDevUid = 'fresh_dev_uid_step22';
+  const tokenFreshDev = createMockToken(freshDevUid, { email: MASTER_ADMIN_EMAIL });
+  const tokenAttacker = createMockToken('attacker_uid', { email: 'attacker@evil.com' });
+
+  // 1. Fresh developer can bootstrap their own profile in /users/{freshDevUid} with role 'developer'
+  recordTest('S22-01', 'Fresh developer can bootstrap own profile with role developer', 'ALLOW',
+    await apiPatch(`users/${freshDevUid}`, {
+      uid: freshDevUid,
+      email: MASTER_ADMIN_EMAIL,
+      role: 'developer',
+      assignedClientId: null,
+    }, tokenFreshDev)
+  );
+
+  // 2. Attacker denied bootstrapping a profile with role 'developer'
+  recordTest('S22-02', 'Attacker denied bootstrapping profile with role developer', 'DENY',
+    await apiPatch('users/attacker_uid', {
+      uid: 'attacker_uid',
+      email: 'attacker@evil.com',
+      role: 'developer',
+      assignedClientId: null,
+    }, tokenAttacker)
+  );
+
+  // 3. Attacker denied creating/spoofing developer profile under developer UID
+  recordTest('S22-03', 'Attacker denied creating profile under developer UID', 'DENY',
+    await apiPatch(`users/${freshDevUid}_spoofed`, {
+      uid: freshDevUid,
+      email: MASTER_ADMIN_EMAIL,
+      role: 'developer',
+    }, tokenAttacker)
+  );
+
+  // 4. Fresh developer can read their own bootstrapped profile
+  recordTest('S22-04', 'Fresh developer can read own bootstrapped profile', 'ALLOW',
+    await apiGet(`users/${freshDevUid}`, tokenFreshDev)
+  );
+
+  // 5. Fresh developer with bootstrapped profile can create a new tenant in /clients/{tenantId}
+  recordTest('S22-05', 'Fresh developer can create new tenant /clients/salon-fresh-dev', 'ALLOW',
+    await apiPatch('clients/salon-fresh-dev', {
+      id: 'salon-fresh-dev',
+      name: 'Fresh Developer Salon',
+      status: 'active',
+      active: true,
+      content: { brand: { name: 'Fresh Developer Salon' } }
+    }, tokenFreshDev)
+  );
+
+  // 6. Non-developer (Client A) denied creating a new tenant in /clients/{tenantId}
+  recordTest('S22-06', 'Client A denied creating new tenant in /clients', 'DENY',
+    await apiPatch('clients/salon-unauthorized-by-client', {
+      id: 'salon-unauthorized-by-client',
+      name: 'Unauthorized Salon',
+      status: 'active',
+      active: true,
+    }, tokenClientA)
+  );
+
+  // 7. Unauthenticated visitor denied creating a new tenant in /clients/{tenantId}
+  recordTest('S22-07', 'Unauthenticated visitor denied creating new tenant in /clients', 'DENY',
+    await apiPatch('clients/salon-unauthorized-anon', {
+      id: 'salon-unauthorized-anon',
+      name: 'Anon Salon',
+      status: 'active',
+      active: true,
+    }, null)
+  );
+
+  // ==========================================================================
+  // SECTION J: STEP 22 PHASE 2 TENANT INVITATIONS & SECURE ACCEPTANCE FLOW
+  // ==========================================================================
+  console.log('\nExecuting Section J: Tenant Invitations & Secure Acceptance Flow...');
+
+  const tokenInvitedOwner = createMockToken('new_owner_uid', { email: 'new_owner@salon.com' });
+  const invData = {
+    invitationId: 'inv_salon_c_step22',
+    clientId: 'salon-c',
+    invitedOwnerEmail: 'new_owner@salon.com',
+    status: 'pending',
+    token: 'secret_token_12345',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+    invitedByUid: freshDevUid,
+    invitedByEmail: MASTER_ADMIN_EMAIL,
+  };
+
+  // 8. Developer can create an invitation in /tenant_invitations
+  recordTest('S22-08', 'Developer can create invitation in /tenant_invitations', 'ALLOW',
+    await apiPatch('tenant_invitations/inv_salon_c_step22', invData, tokenFreshDev)
+  );
+
+  // 9. Client A denied creating an invitation
+  recordTest('S22-09', 'Client A denied creating invitation', 'DENY',
+    await apiPatch('tenant_invitations/inv_forged_a', {
+      ...invData,
+      invitationId: 'inv_forged_a'
+    }, tokenClientA)
+  );
+
+  // 10. Attacker denied creating an invitation
+  recordTest('S22-10', 'Attacker denied creating invitation', 'DENY',
+    await apiPatch('tenant_invitations/inv_forged_b', {
+      ...invData,
+      invitationId: 'inv_forged_b'
+    }, tokenAttacker)
+  );
+
+  // 11. Unauthenticated visitor denied creating an invitation
+  recordTest('S22-11', 'Unauthenticated visitor denied creating invitation', 'DENY',
+    await apiPatch('tenant_invitations/inv_forged_c', {
+      ...invData,
+      invitationId: 'inv_forged_c'
+    }, null)
+  );
+
+  // 12. Invited user can read their own invitation
+  recordTest('S22-12', 'Invited user can read own invitation', 'ALLOW',
+    await apiGet('tenant_invitations/inv_salon_c_step22', tokenInvitedOwner)
+  );
+
+  // 13. Attacker denied reading someone else's invitation
+  recordTest('S22-13', 'Attacker denied reading someone else invitation', 'DENY',
+    await apiGet('tenant_invitations/inv_salon_c_step22', tokenAttacker)
+  );
+
+  // 14. Attacker denied accepting someone else's invitation
+  recordTest('S22-14', 'Attacker denied accepting invitation for new_owner', 'DENY',
+    await apiPatch('tenant_invitations/inv_salon_c_step22', {
+      status: 'accepted',
+      acceptedByUid: 'attacker_uid'
+    }, tokenAttacker)
+  );
+
+  // 15. User denied changing clientId during invitation acceptance
+  recordTest('S22-15', 'User denied changing clientId during acceptance', 'DENY',
+    await apiPatch('tenant_invitations/inv_salon_c_step22', {
+      invitationId: 'inv_salon_c_step22',
+      clientId: 'salon-a', // Tampered from salon-c
+      invitedOwnerEmail: 'new_owner@salon.com',
+      token: 'secret_token_12345',
+      status: 'accepted',
+      acceptedByUid: 'new_owner_uid'
+    }, tokenInvitedOwner)
+  );
+
+  // 16. Invited user can accept their invitation
+  recordTest('S22-16', 'Invited user can accept invitation', 'ALLOW',
+    await apiPatch('tenant_invitations/inv_salon_c_step22', {
+      invitationId: 'inv_salon_c_step22',
+      clientId: 'salon-c',
+      invitedOwnerEmail: 'new_owner@salon.com',
+      token: 'secret_token_12345',
+      status: 'accepted',
+      acceptedByUid: 'new_owner_uid'
+    }, tokenInvitedOwner)
+  );
+
+  // 17. Accepted invitation cannot be accepted again (reused)
+  recordTest('S22-17', 'Accepted invitation cannot be re-accepted (reused)', 'DENY',
+    await apiPatch('tenant_invitations/inv_salon_c_step22', {
+      status: 'accepted',
+      acceptedByUid: 'attacker_uid'
+    }, tokenAttacker)
+  );
+
+  // 18. Attacker denied self-granting role client without valid invitation
+  recordTest('S22-18', 'Attacker denied self-granting role client without valid invitation', 'DENY',
+    await apiPatch('users/attacker_uid', {
+      role: 'client',
+      assignedClientId: 'salon-a',
+    }, tokenAttacker)
+  );
+
+  // 19. Invited user with accepted invitation can create profile in /users
+  recordTest('S22-19', 'Invited user with accepted invitation can create client profile in /users', 'ALLOW',
+    await apiPatch('users/new_owner_uid', {
+      uid: 'new_owner_uid',
+      email: 'new_owner@salon.com',
+      role: 'client',
+      assignedClientId: 'salon-c',
+      invitationId: 'inv_salon_c_step22',
+    }, tokenInvitedOwner)
+  );
+
+  // 20. User denied reassigning assignedClientId to another salon
+  recordTest('S22-20', 'User denied reassigning assignedClientId to another salon', 'DENY',
+    await apiPatch('users/new_owner_uid', {
+      assignedClientId: 'salon-b',
+    }, tokenInvitedOwner)
+  );
+
+  // Seed a second invitation for revocation & deletion tests
+  await seedDoc('tenant_invitations/inv_revocable', {
+    invitationId: 'inv_revocable',
+    clientId: 'salon-d',
+    invitedOwnerEmail: 'revoked_owner@salon.com',
+    status: 'pending',
+    token: 'token_revocable',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+  });
+
+  // 21. Developer can revoke an invitation
+  recordTest('S22-21', 'Developer can revoke an invitation', 'ALLOW',
+    await apiPatch('tenant_invitations/inv_revocable', {
+      status: 'revoked',
+      revokedAt: new Date().toISOString(),
+    }, tokenFreshDev)
+  );
+
+  // 22. Developer can delete an invitation
+  recordTest('S22-22', 'Developer can delete an invitation', 'ALLOW',
+    await apiDelete('tenant_invitations/inv_revocable', tokenFreshDev)
+  );
+
+  // ==========================================================================
+  // SECTION K: STEP 22 PHASE 2 ATOMIC ACCEPTANCE & POST-ACCEPTANCE ISOLATION SUITE
+  // ==========================================================================
+  console.log('\nExecuting Section K: Atomic Acceptance & Post-Acceptance Isolation Suite...');
+
+  const prodOwnerUid = 'prod_owner_uid';
+  const prodOwnerEmail = 'prod_owner@salon.com';
+  const tokenProdOwner = createMockToken(prodOwnerUid, { email: prodOwnerEmail });
+  const prodClientId = 'salon-prod-test';
+  const prodInvId = 'inv_prod_test';
+
+  // Seed pending tenant and invitation for production acceptance sequence
+  await seedDoc(`clients/${prodClientId}`, {
+    id: prodClientId,
+    name: 'Production Salon Test',
+    status: 'pending_invitation',
+    active: false,
+    content: { brand: { name: 'Production Salon' } }
+  });
+
+  await seedDoc(`tenant_invitations/${prodInvId}`, {
+    invitationId: prodInvId,
+    clientId: prodClientId,
+    invitedOwnerEmail: prodOwnerEmail,
+    status: 'pending',
+    token: 'tok_prod_123',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+    invitedByUid: freshDevUid,
+    invitedByEmail: MASTER_ADMIN_EMAIL
+  });
+
+  // 23. Complete 3-way atomic transaction commit succeeds for fresh invited Google user
+  const atomicWrites = [
+    {
+      update: {
+        name: `projects/${PROJECT_ID}/databases/(default)/documents/tenant_invitations/${prodInvId}`,
+        fields: toFirestoreFields({
+          invitationId: prodInvId,
+          clientId: prodClientId,
+          invitedOwnerEmail: prodOwnerEmail,
+          status: 'accepted',
+          token: 'tok_prod_123',
+          acceptedByUid: prodOwnerUid,
+          acceptedAt: new Date().toISOString()
+        }).fields
+      }
+    },
+    {
+      update: {
+        name: `projects/${PROJECT_ID}/databases/(default)/documents/users/${prodOwnerUid}`,
+        fields: toFirestoreFields({
+          uid: prodOwnerUid,
+          email: prodOwnerEmail,
+          role: 'client',
+          assignedClientId: prodClientId,
+          invitationId: prodInvId,
+          invitationAcceptedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }).fields
+      }
+    },
+    {
+      update: {
+        name: `projects/${PROJECT_ID}/databases/(default)/documents/clients/${prodClientId}`,
+        fields: toFirestoreFields({
+          status: 'active',
+          active: true,
+          activatedByInvitationId: prodInvId,
+          updatedAt: new Date().toISOString()
+        }).fields
+      },
+      updateMask: {
+        fieldPaths: ['status', 'active', 'activatedByInvitationId', 'updatedAt']
+      }
+    }
+  ];
+
+  recordTest('S22-23', 'Atomic 3-way transaction commit succeeds for fresh invited owner', 'ALLOW',
+    await apiCommit(atomicWrites, tokenProdOwner)
+  );
+
+  // 24. Resulting owner can update content in their OWN activated tenant
+  recordTest('S22-24', 'Resulting owner can update content in own tenant', 'ALLOW',
+    await apiPatch(`clients/${prodClientId}`, {
+      content: { brand: { name: 'Updated by Prod Owner' } }
+    }, tokenProdOwner)
+  );
+
+  // 25. Resulting owner strictly DENIED modifying another tenant's content (salon-a)
+  recordTest('S22-25', 'Resulting owner denied modifying another tenant content (salon-a)', 'DENY',
+    await apiPatch('clients/salon-a', {
+      content: { brand: { name: 'Hacked by Prod Owner' } }
+    }, tokenProdOwner)
+  );
+
+  // 26. Resulting owner strictly DENIED accessing another tenant's private staff records
+  recordTest('S22-26', 'Resulting owner denied reading private staff in salon-a', 'DENY',
+    await apiGet('clients/salon-a/staff_private/staff-seed-1', tokenProdOwner)
+  );
+
+  // 27. Resulting owner strictly DENIED accessing another tenant's CRM customers
+  recordTest('S22-27', 'Resulting owner denied reading CRM customers in salon-a', 'DENY',
+    await apiGet('clients/salon-a/customers/cust-seed-1', tokenProdOwner)
+  );
+
+  // ─── FAILURE CASES ─────────────────────────────────────────────────────────
+
+  // Failure Case 1: Email mismatch
+  await seedDoc('tenant_invitations/inv_mismatch', {
+    invitationId: 'inv_mismatch',
+    clientId: 'salon-mismatch',
+    invitedOwnerEmail: 'intended_owner@salon.com',
+    status: 'pending',
+    token: 'tok_mismatch',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+  });
+  recordTest('S22-28', 'Attacker denied atomic acceptance with mismatched email', 'DENY',
+    await apiCommit([
+      {
+        update: {
+          name: `projects/${PROJECT_ID}/databases/(default)/documents/tenant_invitations/inv_mismatch`,
+          fields: toFirestoreFields({
+            invitationId: 'inv_mismatch',
+            clientId: 'salon-mismatch',
+            invitedOwnerEmail: 'intended_owner@salon.com',
+            status: 'accepted',
+            token: 'tok_mismatch',
+            acceptedByUid: 'attacker_uid',
+            acceptedAt: new Date().toISOString()
+          }).fields
+        }
+      },
+      {
+        update: {
+          name: `projects/${PROJECT_ID}/databases/(default)/documents/users/attacker_uid`,
+          fields: toFirestoreFields({
+            uid: 'attacker_uid',
+            email: 'attacker@evil.com',
+            role: 'client',
+            assignedClientId: 'salon-mismatch',
+            invitationId: 'inv_mismatch',
+          }).fields
+        }
+      }
+    ], tokenAttacker)
+  );
+
+  // Failure Case 2: Expired invitation
+  await seedDoc('tenant_invitations/inv_expired_test', {
+    invitationId: 'inv_expired_test',
+    clientId: 'salon-expired',
+    invitedOwnerEmail: 'expired_owner@salon.com',
+    status: 'pending',
+    token: 'tok_expired',
+    createdAt: '2020-01-01T00:00:00Z',
+    expiresAt: { timestampValue: '2020-01-04T00:00:00Z' },
+  });
+  const tokenExpiredOwner = createMockToken('expired_owner_uid', { email: 'expired_owner@salon.com' });
+  recordTest('S22-29', 'Accepting expired invitation rejected by security rules', 'DENY',
+    await apiCommit([
+      {
+        update: {
+          name: `projects/${PROJECT_ID}/databases/(default)/documents/tenant_invitations/inv_expired_test`,
+          fields: toFirestoreFields({
+            invitationId: 'inv_expired_test',
+            clientId: 'salon-expired',
+            invitedOwnerEmail: 'expired_owner@salon.com',
+            status: 'accepted',
+            token: 'tok_expired',
+            acceptedByUid: 'expired_owner_uid',
+            acceptedAt: new Date().toISOString()
+          }).fields
+        }
+      }
+    ], tokenExpiredOwner)
+  );
+
+  // Failure Case 3: Revoked invitation
+  await seedDoc('tenant_invitations/inv_revoked_fail', {
+    invitationId: 'inv_revoked_fail',
+    clientId: 'salon-revoked',
+    invitedOwnerEmail: 'revoked_owner@salon.com',
+    status: 'revoked',
+    token: 'tok_revoked',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+  });
+  const tokenRevokedOwner = createMockToken('revoked_owner_uid', { email: 'revoked_owner@salon.com' });
+  recordTest('S22-30', 'Accepting revoked invitation rejected', 'DENY',
+    await apiCommit([
+      {
+        update: {
+          name: `projects/${PROJECT_ID}/databases/(default)/documents/tenant_invitations/inv_revoked_fail`,
+          fields: toFirestoreFields({
+            invitationId: 'inv_revoked_fail',
+            status: 'accepted',
+            acceptedByUid: 'revoked_owner_uid'
+          }).fields
+        }
+      }
+    ], tokenRevokedOwner)
+  );
+
+  // Failure Case 4: Already accepted invitation
+  await seedDoc('tenant_invitations/inv_already_acc', {
+    invitationId: 'inv_already_acc',
+    clientId: 'salon-acc',
+    invitedOwnerEmail: 'acc_owner@salon.com',
+    status: 'accepted',
+    token: 'tok_acc',
+    acceptedByUid: 'first_owner_uid',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+  });
+  recordTest('S22-31', 'Re-accepting already accepted invitation rejected', 'DENY',
+    await apiCommit([
+      {
+        update: {
+          name: `projects/${PROJECT_ID}/databases/(default)/documents/tenant_invitations/inv_already_acc`,
+          fields: toFirestoreFields({
+            invitationId: 'inv_already_acc',
+            status: 'accepted',
+            acceptedByUid: 'second_owner_uid'
+          }).fields
+        }
+      }
+    ], tokenAttacker)
+  );
+
+  // Failure Case 5: Modified clientId during activation
+  await seedDoc('clients/salon-target-tamper', {
+    id: 'salon-target-tamper',
+    name: 'Tamper Target',
+    status: 'pending_invitation',
+    active: false
+  });
+  recordTest('S22-32', 'Activating mismatched tenant using another invitation rejected', 'DENY',
+    await apiPatch('clients/salon-target-tamper', {
+      status: 'active',
+      active: true,
+      activatedByInvitationId: prodInvId // Issued for salon-prod-test, NOT salon-target-tamper
+    }, tokenProdOwner)
+  );
+
+  // Failure Case 6: Attacker activating tenant directly without invitation
+  recordTest('S22-33', 'Attacker denied directly activating tenant without invitation', 'DENY',
+    await apiPatch(`clients/${prodClientId}`, {
+      status: 'active',
+      active: true
+    }, tokenAttacker)
+  );
+
+  // Failure Case 7: Attacker self-granting client role without invitation
+  recordTest('S22-34', 'Attacker denied self-granting client role without invitation', 'DENY',
+    await apiPatch('users/attacker_uid_2', {
+      uid: 'attacker_uid_2',
+      email: 'attacker2@evil.com',
+      role: 'client',
+      assignedClientId: prodClientId
+    }, tokenAttacker)
+  );
+
+  // 35. Resulting owner denied self-elevating role to developer
+  recordTest('S22-35', 'Resulting owner denied elevating role to developer', 'DENY',
+    await apiPatch(`users/${prodOwnerUid}`, {
+      role: 'developer'
+    }, tokenProdOwner)
+  );
+
+  // ==========================================================================
+  // SECTION L: STEP 22 PHASE 3 INVITATION RESEND & INVALIDATION SUITE
+  // ==========================================================================
+  console.log('\nExecuting Section L: Step 22 Phase 3 Resend & Invalidation Suite...');
+  const resendClientId = 'salon-resend-test';
+  const resendOwnerEmail = 'owner_resend@salon.com';
+  const resendOwnerUid = 'owner_resend_uid';
+  const tokenResendOwner = createMockToken(resendOwnerUid, { email: resendOwnerEmail });
+
+  // 1. Seed pending tenant
+  await seedDoc(`clients/${resendClientId}`, {
+    id: resendClientId,
+    name: 'Salon Resend Test',
+    status: 'pending_invitation',
+    active: false,
+    invitedOwnerEmail: resendOwnerEmail,
+    content: { brand: { name: 'Salon Resend Test' } }
+  });
+
+  // 2. Client / visitor cannot modify pending_invitation tenant
+  recordTest('S23-01', 'Unassigned user denied modifying pending_invitation tenant', 'DENY',
+    await apiPatch(`clients/${resendClientId}`, {
+      content: { brand: { name: 'Hacked Salon' } }
+    }, tokenAttacker)
+  );
+
+  // 3. First invitation created by developer
+  const firstInvId = 'inv_resend_first';
+  recordTest('S23-02', 'Developer creates first invitation for salon-resend-test', 'ALLOW',
+    await apiPatch(`tenant_invitations/${firstInvId}`, {
+      invitationId: firstInvId,
+      clientId: resendClientId,
+      invitedOwnerEmail: resendOwnerEmail,
+      status: 'pending',
+      token: 'token_first_resend',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString()
+    }, tokenFreshDev)
+  );
+
+  // 4. Developer revokes first invitation during resend
+  recordTest('S23-03', 'Developer revokes first invitation during resend', 'ALLOW',
+    await apiPatch(`tenant_invitations/${firstInvId}`, {
+      status: 'revoked',
+      revokedAt: new Date().toISOString(),
+      revokedByUid: 'fresh_dev_uid'
+    }, tokenFreshDev)
+  );
+
+  // 5. Recipient denied accepting the revoked first invitation
+  recordTest('S23-04', 'Recipient denied accepting revoked first invitation', 'DENY',
+    await apiPatch(`tenant_invitations/${firstInvId}`, {
+      invitationId: firstInvId,
+      clientId: resendClientId,
+      invitedOwnerEmail: resendOwnerEmail,
+      token: 'token_first_resend',
+      status: 'accepted',
+      acceptedByUid: resendOwnerUid
+    }, tokenResendOwner)
+  );
+
+  // 6. Developer creates fresh second invitation
+  const secondInvId = 'inv_resend_second';
+  recordTest('S23-05', 'Developer creates fresh second invitation for salon-resend-test', 'ALLOW',
+    await apiPatch(`tenant_invitations/${secondInvId}`, {
+      invitationId: secondInvId,
+      clientId: resendClientId,
+      invitedOwnerEmail: resendOwnerEmail,
+      status: 'pending',
+      token: 'token_second_resend',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString()
+    }, tokenFreshDev)
+  );
+
+  // 7. Intended recipient accepts the fresh second invitation atomically
+  const resendAtomicWrites = [
+    {
+      update: {
+        name: `projects/${PROJECT_ID}/databases/(default)/documents/tenant_invitations/${secondInvId}`,
+        fields: toFirestoreFields({
+          invitationId: secondInvId,
+          clientId: resendClientId,
+          invitedOwnerEmail: resendOwnerEmail,
+          status: 'accepted',
+          token: 'token_second_resend',
+          acceptedByUid: resendOwnerUid
+        }).fields
+      }
+    },
+    {
+      update: {
+        name: `projects/${PROJECT_ID}/databases/(default)/documents/users/${resendOwnerUid}`,
+        fields: toFirestoreFields({
+          uid: resendOwnerUid,
+          email: resendOwnerEmail,
+          role: 'client',
+          assignedClientId: resendClientId,
+          invitationId: secondInvId
+        }).fields
+      }
+    },
+    {
+      update: {
+        name: `projects/${PROJECT_ID}/databases/(default)/documents/clients/${resendClientId}`,
+        fields: toFirestoreFields({
+          status: 'active',
+          active: true,
+          activatedByInvitationId: secondInvId
+        }).fields
+      },
+      updateMask: {
+        fieldPaths: ['status', 'active', 'activatedByInvitationId']
+      }
+    }
+  ];
+
+  recordTest('S23-06', 'Recipient successfully accepts fresh second invitation atomically', 'ALLOW',
+    await apiCommit(resendAtomicWrites, tokenResendOwner)
+  );
+
+  // 8. Attacker denied attempting to re-accept the first revoked invitation
+  recordTest('S23-07', 'Attacker denied accepting old revoked invitation after tenant is active', 'DENY',
+    await apiPatch(`tenant_invitations/${firstInvId}`, {
+      status: 'accepted',
+      acceptedByUid: 'attacker_uid'
+    }, tokenAttacker)
+  );
+
+  // ==========================================================================
   // DISPLAY SUMMARY
   // ==========================================================================
   console.log('\n================================================================');
-  console.log('ALL EXECUTED SECURITY TESTS (BASELINE + STEP 8 + STEP 12 + STEP 13 + STEP 14 + STEP 15 + STEP 16)');
+  console.log('ALL EXECUTED SECURITY TESTS (BASELINE + S8 + S12 + S13 + S14 + S15 + S16 + S21 + S22)');
   console.log('================================================================');
   console.table(results);
 

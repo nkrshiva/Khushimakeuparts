@@ -1,8 +1,8 @@
 import {
-  signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
-  sendPasswordResetEmail as firebaseSendPasswordResetEmail,
   User,
   UserCredential,
 } from 'firebase/auth';
@@ -12,11 +12,20 @@ export type { User, UserCredential };
 
 /**
  * AuthService
- * 
+ *
  * Thin infrastructure boundary encapsulating Firebase Authentication SDK operations.
+ * Implements Google Sign-In via Firebase Auth.
  * Exposes core auth operations without mixing UI, authorization, or tenant logic.
  */
 export class AuthService {
+  private googleProvider: GoogleAuthProvider;
+
+  constructor() {
+    this.googleProvider = new GoogleAuthProvider();
+    // Always prompt account selection so users can switch Google accounts
+    this.googleProvider.setCustomParameters({ prompt: 'select_account' });
+  }
+
   /**
    * Checks whether the Firebase Auth instance is initialized.
    */
@@ -43,13 +52,14 @@ export class AuthService {
   }
 
   /**
-   * Authenticates a user with email and password via Firebase Auth SDK.
+   * Opens Google's OAuth2 popup and authenticates the user via Firebase.
+   * Returns the authenticated UserCredential on success.
    */
-  async signIn(email: string, pass: string): Promise<UserCredential> {
+  async signInWithGoogle(): Promise<UserCredential> {
     if (!auth) {
       throw new Error('Firebase Auth is not initialized.');
     }
-    return await signInWithEmailAndPassword(auth, email, pass);
+    return await signInWithPopup(auth, this.googleProvider);
   }
 
   /**
@@ -60,16 +70,6 @@ export class AuthService {
       return;
     }
     await firebaseSignOut(auth);
-  }
-
-  /**
-   * Triggers a password reset email via Firebase Auth SDK.
-   */
-  async sendPasswordResetEmail(email: string): Promise<void> {
-    if (!auth) {
-      throw new Error('Firebase Auth is not initialized.');
-    }
-    await firebaseSendPasswordResetEmail(auth, email);
   }
 }
 

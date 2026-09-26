@@ -54,6 +54,9 @@ export class IdentityResolutionService implements IIdentityResolutionService {
     let profile = null;
     try {
       profile = await this.tenantRepo.getUserProfile(user.uid);
+      if (!profile && cleanEmail) {
+        profile = await this.tenantRepo.getUserProfileByEmail(cleanEmail);
+      }
     } catch (err) {
       console.warn('[IdentityResolutionService] Could not read user profile from repository:', err);
     }
@@ -62,18 +65,38 @@ export class IdentityResolutionService implements IIdentityResolutionService {
     // Strictly requires email matching platform developer bootstrap identity
     if (isBootstrapDeveloperEmail(cleanEmail)) {
       if (profile?.role === 'developer' || !profile) {
-        // Auto-bootstrap profile if missing
+        // PHASE 1 FIX — Bootstrap write is no longer fire-and-forget.
+        //
+        // Problem eliminated: the Firestore rule isDeveloper() calls getUserData() which reads
+        // /users/{uid} at rule evaluation time. When the write was inside a silent try/catch, a
+        // Firestore permission error or cold-start delay could leave the document uncommitted.
+        // The next Firestore operation (e.g. saveTenant) would then see an empty getUserData()
+        // result and isDeveloper() would evaluate to false → PERMISSION_DENIED.
+        //
+        // Fix: await the write fully, then confirm it committed via a read-after-write.
+        // If either operation fails, throw a tagged error rather than silently continuing.
+        // The caller (resolve/UniversalLoginModal) must handle the failure explicitly.
         if (!profile) {
-          try {
-            await this.tenantRepo.saveUserProfile(user.uid, {
-              uid: user.uid,
-              email: cleanEmail,
-              role: 'developer',
-              assignedClientId: null,
-              updatedAt: new Date().toISOString(),
-            });
-          } catch (syncErr) {
-            console.warn('[IdentityResolutionService] Bootstrap developer profile sync notice:', syncErr);
+          // Will throw if the Firestore write is denied or fails — error propagates to caller.
+          await this.tenantRepo.saveUserProfile(user.uid, {
+            uid: user.uid,
+            email: cleanEmail,
+            role: 'developer',
+            assignedClientId: null,
+            updatedAt: new Date().toISOString(),
+          });
+
+          // Read-after-write: confirm the committed document is visible in Firestore before
+          // returning MASTER_PLATFORM_ADMIN. This ensures isDeveloper() on the next rule
+          // evaluation will find role == 'developer' in getUserData().
+          const committed = await this.tenantRepo.getUserProfile(user.uid);
+          if (!committed || committed.role !== 'developer') {
+            throw new Error(
+              '[BOOTSTRAP_ERROR] Developer identity bootstrap failed: the platform identity ' +
+              'record could not be confirmed in Firestore. Please sign out and sign in again. ' +
+              'If the problem persists, verify that the Firestore security rules are deployed ' +
+              'and that the bootstrap allowCreate rule for naveen.kr.shiva@gmail.com is active.'
+            );
           }
         }
         return {
@@ -84,6 +107,7 @@ export class IdentityResolutionService implements IIdentityResolutionService {
         };
       }
     }
+
 
     // 3. User with no assigned tenant -> NO_WORKSPACE
     const assignedTenantId = profile?.assignedClientId?.trim() || null;
@@ -115,6 +139,16 @@ export class IdentityResolutionService implements IIdentityResolutionService {
       };
     }
 
+    if (tenantDoc.status === 'pending_invitation') {
+      return {
+        type: 'NO_WORKSPACE',
+        uid: user.uid,
+        email: cleanEmail,
+        reason: 'TENANT_PENDING_ACTIVATION',
+        tenantId: assignedTenantId,
+      };
+    }
+
     if (tenantDoc.status === 'suspended' || tenantDoc.active === false) {
       return {
         type: 'NO_WORKSPACE',
@@ -127,6 +161,16 @@ export class IdentityResolutionService implements IIdentityResolutionService {
 
     // 5. Tenant Employee Resolution
     if (profile?.role === 'employee' || Boolean(profile?.employeeId)) {
+      if (profile?.active === false) {
+        return {
+          type: 'NO_WORKSPACE',
+          uid: user.uid,
+          email: cleanEmail,
+          reason: 'INACTIVE_ACCOUNT',
+          tenantId: assignedTenantId,
+        };
+      }
+
       const permissions = Array.isArray(profile?.permissions) && profile.permissions.length > 0
         ? profile.permissions
         : ['view_schedule'];

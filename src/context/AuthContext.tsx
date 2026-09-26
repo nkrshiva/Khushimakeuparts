@@ -2,29 +2,94 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from '../services/auth/AuthService';
 import { authService } from '../services/auth/AuthService';
 
-interface AuthContextType {
+export interface AuthContextType {
   user: User | null;
-  isAdmin: boolean;
   loading: boolean;
-  login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  signInWithGoogle: () => Promise<{ success: boolean; user?: User; error?: string }>;
   logout: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const LOCAL_ADMIN_KEY = 'platform_admin_session';
-const LEGACY_ADMIN_KEY = 'khushi_admin_local_session';
 
 // Storage cleanup keys on logout
 const LOCAL_ROLE_KEY = 'platform_admin_role';
 const LOCAL_CLIENT_ID_KEY = 'platform_admin_assigned_tenant';
+const LEGACY_ADMIN_KEY = 'khushi_admin_local_session';
 const LEGACY_ROLE_KEY = 'khushi_admin_role';
 const LEGACY_CLIENT_ID_KEY = 'khushi_admin_client_id';
+const LEGACY_EMAIL_FOR_SIGN_IN_KEY = 'emailForSignIn';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  /**
+   * Opens the Google Sign-In popup and authenticates the user via Firebase Auth.
+   * Returns the raw Firebase User credential; RBAC/identity resolution is performed
+   * by IdentityResolutionService upstream — this layer only authenticates, never authorizes.
+   */
+  const signInWithGoogle = async (): Promise<{ success: boolean; user?: User; error?: string }> => {
+    if (!authService.isAvailable()) {
+      return { success: false, error: 'Authentication service is unavailable. Please verify Firebase configuration.' };
+    }
+
+    try {
+      const userCred = await authService.signInWithGoogle();
+      setUser(userCred.user);
+
+      try {
+        localStorage.setItem(LOCAL_ADMIN_KEY, 'true');
+      } catch {}
+
+      return { success: true, user: userCred.user };
+    } catch (err: any) {
+      // auth/popup-closed-by-user and auth/cancelled-popup-request are normal user cancellations
+      // — do not surface them as errors to the user.
+      if (
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request'
+      ) {
+        return { success: false };
+      }
+
+      console.warn('[AuthContext] Google sign-in error code:', err?.code);
+
+      let message = 'Google sign-in failed. Please try again.';
+      if (err?.code === 'auth/popup-blocked') {
+        message = 'Sign-in popup was blocked by your browser. Please allow popups for this site and try again.';
+      } else if (err?.code === 'auth/network-request-failed') {
+        message = 'Network error. Please check your internet connection and try again.';
+      } else if (err?.code === 'auth/operation-not-allowed') {
+        message = 'Google sign-in is not enabled for this platform. Please contact the platform administrator.';
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        message = 'This domain is not authorized for Google sign-in. Please contact the platform administrator.';
+      } else if (err?.code === 'auth/account-exists-with-different-credential') {
+        message = 'An account already exists with a different sign-in method for this email address.';
+      }
+
+      return { success: false, error: message };
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await authService.signOut();
+    } catch (e) {
+      console.warn('[AuthContext] SignOut notice', e);
+    }
+    setUser(null);
+    try {
+      localStorage.removeItem(LOCAL_ADMIN_KEY);
+      localStorage.removeItem(LOCAL_ROLE_KEY);
+      localStorage.removeItem(LOCAL_CLIENT_ID_KEY);
+      localStorage.removeItem(LEGACY_ADMIN_KEY);
+      localStorage.removeItem(LEGACY_ROLE_KEY);
+      localStorage.removeItem(LEGACY_CLIENT_ID_KEY);
+      localStorage.removeItem(LEGACY_EMAIL_FOR_SIGN_IN_KEY);
+    } catch {}
+  };
 
   useEffect(() => {
     if (!authService.isAvailable()) {
@@ -40,7 +105,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.setItem(LOCAL_ADMIN_KEY, 'true');
           } catch {}
         } else {
-          // If no active Firebase Auth session, ensure local storage session flag is cleared
           try {
             localStorage.removeItem(LOCAL_ADMIN_KEY);
           } catch {}
@@ -49,113 +113,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       return () => unsubscribe();
     } catch (err) {
-      console.warn('onAuthStateChanged listener notice:', err);
+      console.warn('[AuthContext] onAuthStateChanged listener notice:', err);
       setLoading(false);
     }
   }, []);
-
-  const login = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanPass = pass.trim();
-
-    if (!cleanEmail || !cleanPass) {
-      return { success: false, error: 'Please provide both email and password.' };
-    }
-
-    // 1. Primary: Authenticate via AuthService
-    if (authService.isAvailable()) {
-      try {
-        const userCred = await authService.signIn(cleanEmail, cleanPass);
-
-        setUser(userCred.user);
-
-        try {
-          localStorage.setItem(LOCAL_ADMIN_KEY, 'true');
-        } catch {}
-
-        return { success: true };
-      } catch (firebaseErr: any) {
-        console.warn('Firebase login error code:', firebaseErr?.code);
-
-        // Friendly, user-understandable error messages
-        let message = 'Invalid email or password. Please verify your credentials.';
-        if (firebaseErr?.code === 'auth/user-not-found' || firebaseErr?.code === 'auth/wrong-password' || firebaseErr?.code === 'auth/invalid-credential') {
-          message = 'Incorrect email or password. Please check your details or reset your password.';
-        } else if (firebaseErr?.code === 'auth/too-many-requests') {
-          message = 'Access temporarily disabled due to multiple failed login attempts. Please reset your password or try again later.';
-        } else if (firebaseErr?.code === 'auth/invalid-email') {
-          message = 'Please enter a valid email address.';
-        } else if (firebaseErr?.code === 'auth/network-request-failed') {
-          message = 'Network error. Please check your internet connection.';
-        }
-
-        return {
-          success: false,
-          error: message,
-        };
-      }
-    }
-
-    return {
-      success: false,
-      error: 'Authentication service is unavailable. Please check your Firebase configuration.',
-    };
-  };
-
-  // Self-service password reset email
-  const resetPassword = async (email: string): Promise<{ success: boolean; error?: string }> => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
-      return { success: false, error: 'Please enter your email address to reset password.' };
-    }
-
-    if (!authService.isAvailable()) {
-      return { success: false, error: 'Firebase Auth is not initialized.' };
-    }
-
-    try {
-      await authService.sendPasswordResetEmail(cleanEmail);
-      return { success: true };
-    } catch (err: any) {
-      console.warn('Password reset notice:', err);
-      let message = 'Failed to send password reset email. Please verify the address.';
-      if (err?.code === 'auth/user-not-found') {
-        message = 'No registered admin found with this email address.';
-      } else if (err?.code === 'auth/invalid-email') {
-        message = 'Please provide a valid email format.';
-      }
-      return { success: false, error: message };
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await authService.signOut();
-    } catch (e) {
-      console.warn('SignOut notice', e);
-    }
-    setUser(null);
-    try {
-      localStorage.removeItem(LOCAL_ADMIN_KEY);
-      localStorage.removeItem(LOCAL_ROLE_KEY);
-      localStorage.removeItem(LOCAL_CLIENT_ID_KEY);
-      localStorage.removeItem(LEGACY_ADMIN_KEY);
-      localStorage.removeItem(LEGACY_ROLE_KEY);
-      localStorage.removeItem(LEGACY_CLIENT_ID_KEY);
-    } catch {}
-  };
-
-  const isAdmin = Boolean(user);
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isAdmin,
         loading,
-        login,
+        signInWithGoogle,
         logout,
-        resetPassword,
       }}
     >
       {children}

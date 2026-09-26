@@ -22,6 +22,7 @@ import {
   BusySlotItem,
   DayOfWeek,
   DEFAULT_MAIN_CLIENT,
+  TenantInvitation,
 } from '../types';
 import { ARCHETYPE_PRESETS, DEFAULT_BUSINESS_HOURS } from '../data/archetypePresets';
 
@@ -44,7 +45,10 @@ interface ContentContextType {
     instagram: string;
     customDomain?: string;
     archetype?: BusinessArchetype;
-  }) => Promise<{ success: boolean; id?: string; error?: string }>;
+    invitedOwnerEmail?: string;
+  }) => Promise<{ success: boolean; id?: string; invitation?: TenantInvitation; error?: string }>;
+  resendTenantInvitation: (clientId: string, invitedOwnerEmail: string) => Promise<{ success: boolean; invitation?: TenantInvitation; error?: string }>;
+  revokeTenantInvitation: (invitationId: string) => Promise<{ success: boolean; error?: string }>;
   deleteClientSite: (id: string) => Promise<{ success: boolean; error?: string }>;
   toggleClientStatus: (id: string, active: boolean) => Promise<boolean>;
   setTenantLifecycleStatus: (id: string, status: TenantLifecycleStatus) => Promise<boolean>;
@@ -512,7 +516,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     instagram: string;
     customDomain?: string;
     archetype?: BusinessArchetype;
-  }): Promise<{ success: boolean; id?: string; error?: string }> => {
+    invitedOwnerEmail?: string;
+  }): Promise<{ success: boolean; id?: string; invitation?: TenantInvitation; error?: string }> => {
     const result = await tenantService.createTenantSite(role, tenantData, clientsList);
     if (result.success && result.id && result.summary) {
       const updatedList = [...clientsList, result.summary];
@@ -520,9 +525,24 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(updatedList));
       } catch {}
-      return { success: true, id: result.id };
+      return { success: true, id: result.id, invitation: result.invitation };
     }
     return { success: false, error: result.error };
+  };
+
+  // Resend tenant onboarding invitation
+  const resendTenantInvitation = async (
+    clientId: string,
+    invitedOwnerEmail: string
+  ): Promise<{ success: boolean; invitation?: TenantInvitation; error?: string }> => {
+    return tenantService.resendInvitation(role, clientId, invitedOwnerEmail);
+  };
+
+  // Revoke tenant onboarding invitation
+  const revokeTenantInvitation = async (
+    invitationId: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    return tenantService.revokeInvitation(role, invitationId);
   };
 
   // Set tenant lifecycle status: 'active' | 'suspended' | 'archived'
@@ -897,6 +917,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setActiveClientId,
       saveContent,
       createClientSite,
+      resendTenantInvitation,
+      revokeTenantInvitation,
       deleteClientSite,
       toggleClientStatus,
       setTenantLifecycleStatus,

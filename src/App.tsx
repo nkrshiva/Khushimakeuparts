@@ -21,7 +21,7 @@ import { AnnouncementBar } from './components/AnnouncementBar';
 import { Testimonials } from './components/Testimonials';
 import { AdminPanel } from './components/AdminPanel';
 import { MasterAdminPanel } from './components/MasterAdminPanel';
-import { AdminLoginModal } from './components/AdminLoginModal';
+
 import { MovingBackground } from './components/MovingBackground';
 import { BeforeAfterSlider } from './components/BeforeAfterSlider';
 import { DateAvailabilityCalendar } from './components/DateAvailabilityCalendar';
@@ -32,6 +32,7 @@ import { UniversalPlatformLanding } from './components/platform/UniversalPlatfor
 import { UniversalLoginModal } from './components/auth/UniversalLoginModal';
 import { NoWorkspaceModal } from './components/auth/NoWorkspaceModal';
 import { EmailVerificationModal } from './components/auth/EmailVerificationModal';
+import { InvitationAcceptanceModal } from './components/auth/InvitationAcceptanceModal';
 import { EmployeeWorkspaceModal } from './components/employee/EmployeeWorkspaceModal';
 import type { IdentityResolutionResult, NoWorkspaceReason } from './domain/identity/types';
 
@@ -44,7 +45,7 @@ function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
   const { content, activeClientId, setActiveClientId, clientsList, isModuleEnabled } = useSiteContent();
   const { brand } = content;
   const sections = content.sectionsVisibility || DEFAULT_SECTIONS_VISIBILITY;
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const { role, isDeveloper } = useTenant();
 
   const currentTenantMeta = clientsList.find((c) => c.id === activeClientId);
@@ -134,7 +135,7 @@ function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
   }, [content.analytics]);
 
   const handleOpenAdminPortal = () => {
-    if (isAdmin) {
+    if (authorizationService.canAccessAdminPanel(role)) {
       onOpenAdminPanel();
     } else {
       onOpenLogin();
@@ -171,7 +172,7 @@ function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  if (isTenantDisabled && !isAdmin) {
+  if (isTenantDisabled && !authorizationService.canAccessAdminPanel(role)) {
     return (
       <div className="min-h-screen bg-[#12090d] text-[#fcecee] flex flex-col items-center justify-center p-6 text-center font-['Plus_Jakarta_Sans'] relative overflow-hidden">
         <MovingBackground veilOpacity={0.85} />
@@ -340,8 +341,8 @@ function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
 }
 
 function AppShell() {
-  const { user, isAdmin } = useAuth();
-  const { role, isDeveloper } = useTenant();
+  const { user } = useAuth();
+  const { role, isDeveloper, identity } = useTenant();
   const { activeClientId, setActiveClientId } = useSiteContent();
 
   // Active view: 'platform' | 'storefront'
@@ -377,16 +378,120 @@ function AppShell() {
   const [isEmailVerificationOpen, setIsEmailVerificationOpen] = useState(false);
   const [emailVerificationEmail, setEmailVerificationEmail] = useState('');
 
+  // Tenant Onboarding Invitation State
+  const [invitationData, setInvitationData] = useState<{
+    invitationId: string;
+    token: string;
+    clientIdHint?: string;
+  } | null>(null);
+
+  // Check URL query parameters on mount and history changes for ?inviteId=...&token=...
+  useEffect(() => {
+    const handleCheckInvitationParams = () => {
+      try {
+        const search = window.location.search;
+        if (!search) return;
+        const params = new URLSearchParams(search);
+        const inviteId = params.get('inviteId');
+        const token = params.get('token');
+        const clientHint = params.get('client') || undefined;
+
+        if (inviteId && token) {
+          setInvitationData({
+            invitationId: inviteId.trim(),
+            token: token.trim(),
+            clientIdHint: clientHint?.trim(),
+          });
+        }
+      } catch (e) {
+        console.warn('Error reading invitation params:', e);
+      }
+    };
+
+    handleCheckInvitationParams();
+    window.addEventListener('popstate', handleCheckInvitationParams);
+    return () => window.removeEventListener('popstate', handleCheckInvitationParams);
+  }, []);
+
+  const handleInvitationAccepted = (tenantId: string) => {
+    setInvitationData(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('inviteId');
+      url.searchParams.delete('token');
+      url.searchParams.set('client', tenantId);
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+
+    setActiveClientId(tenantId);
+    setIsAdminPanelOpen(true);
+  };
+
   const cleanAdminHash = () => {
     const hash = window.location.hash.toLowerCase();
-    if (hash === '#masteradmin' || hash === '#myadminpanel' || hash === '#admin') {
+    if (
+      hash === '#masteradmin' ||
+      hash === '#myadminpanel' ||
+      hash === '#admin' ||
+      hash === '#employee' ||
+      hash === '#no-workspace' ||
+      hash === '#verify-email'
+    ) {
       try {
         history.replaceState(null, '', window.location.pathname + window.location.search);
       } catch {}
     }
   };
 
-  // Route handling for #masteradmin (developer cockpit) and #myadminpanel / #admin (tenant CMS)
+  const handleUniversalLoginSuccess = (resolution: IdentityResolutionResult) => {
+    setIsUniversalLoginOpen(false);
+    const { identity: resIdentity, destination } = resolution;
+    switch (destination) {
+      case 'MASTER_ADMIN':
+        setIsMasterAdminOpen(true);
+        break;
+      case 'TENANT_ADMIN':
+        if (resIdentity.type === 'TENANT_OWNER' && resIdentity.tenantId) {
+          setActiveClientId(resIdentity.tenantId);
+        }
+        setIsAdminPanelOpen(true);
+        break;
+      case 'EMPLOYEE_WORKSPACE':
+        if (resIdentity.type === 'TENANT_EMPLOYEE') {
+          setEmployeeWorkspaceData({
+            tenantId: resIdentity.tenantId || activeClientId,
+            employeeId: resIdentity.employeeId,
+            permissions: resIdentity.permissions,
+          });
+        }
+        setIsEmployeeWorkspaceOpen(true);
+        break;
+      case 'NO_WORKSPACE':
+        if (resIdentity.type === 'NO_WORKSPACE') {
+          setNoWorkspaceData({
+            reason: resIdentity.reason || 'UNASSIGNED',
+            tenantId: resIdentity.tenantId,
+            userEmail: resIdentity.email,
+          });
+        } else {
+          setNoWorkspaceData({
+            reason: 'UNASSIGNED',
+            userEmail: user?.email,
+          });
+        }
+        setIsNoWorkspaceOpen(true);
+        break;
+      case 'EMAIL_VERIFICATION':
+        setEmailVerificationEmail(('email' in resIdentity && resIdentity.email) || user?.email || '');
+        setIsEmailVerificationOpen(true);
+        break;
+      default:
+        setIsAdminPanelOpen(true);
+        break;
+    }
+  };
+
+  // Route handling for #masteradmin, #admin / #myadminpanel, #employee, #no-workspace, #verify-email
   useEffect(() => {
     const handleCheckAdminRoute = () => {
       const hash = window.location.hash.toLowerCase();
@@ -397,10 +502,43 @@ function AppShell() {
           setIsUniversalLoginOpen(true);
         }
       } else if (hash === '#myadminpanel' || hash === '#admin') {
-        if (isAdmin) {
+        if (authorizationService.canAccessAdminPanel(role)) {
           setIsAdminPanelOpen(true);
         } else {
           setIsUniversalLoginOpen(true);
+        }
+      } else if (hash === '#employee') {
+        if (authorizationService.canAccessEmployeeWorkspace(role, identity.type)) {
+          if (identity.type === 'TENANT_EMPLOYEE') {
+            setEmployeeWorkspaceData({
+              tenantId: identity.tenantId || activeClientId,
+              employeeId: identity.employeeId,
+              permissions: identity.permissions,
+            });
+          } else if (role === 'developer' || role === 'client') {
+            setEmployeeWorkspaceData({
+              tenantId: activeClientId,
+              employeeId: user?.uid,
+              permissions: ['admin_all', 'view_schedule', 'manage_appointments', 'view_customer_pii'],
+            });
+          }
+          setIsEmployeeWorkspaceOpen(true);
+        } else {
+          setIsUniversalLoginOpen(true);
+        }
+      } else if (hash === '#no-workspace') {
+        if (identity.type === 'NO_WORKSPACE') {
+          setNoWorkspaceData({
+            reason: identity.reason || 'UNASSIGNED',
+            tenantId: identity.tenantId,
+            userEmail: identity.email,
+          });
+          setIsNoWorkspaceOpen(true);
+        }
+      } else if (hash === '#verify-email') {
+        if (user && !user.emailVerified) {
+          setEmailVerificationEmail(user.email || '');
+          setIsEmailVerificationOpen(true);
         }
       }
     };
@@ -408,14 +546,14 @@ function AppShell() {
     handleCheckAdminRoute();
     window.addEventListener('hashchange', handleCheckAdminRoute);
     return () => window.removeEventListener('hashchange', handleCheckAdminRoute);
-  }, [user, isAdmin, isDeveloper, role]);
+  }, [user, isDeveloper, role, identity, activeClientId]);
 
-  // Keyboard shortcut: Ctrl + Alt + A to open admin
+  // Keyboard shortcut: Ctrl + Alt + A to open admin (strictly for authorized tenant owners or developer)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.altKey && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault();
-        if (isAdmin) {
+        if (authorizationService.canAccessAdminPanel(role)) {
           setIsAdminPanelOpen((prev) => !prev);
         } else {
           setIsUniversalLoginOpen(true);
@@ -424,7 +562,7 @@ function AppShell() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAdmin]);
+  }, [role]);
 
   // Route listener for Platform View vs Storefront View
   useEffect(() => {
@@ -456,54 +594,6 @@ function AppShell() {
     } catch {}
     setCurrentView('storefront');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleUniversalLoginSuccess = (resolution: IdentityResolutionResult) => {
-    setIsUniversalLoginOpen(false);
-    const { identity, destination } = resolution;
-    switch (destination) {
-      case 'MASTER_ADMIN':
-        setIsMasterAdminOpen(true);
-        break;
-      case 'TENANT_ADMIN':
-        if (identity.type === 'TENANT_OWNER' && identity.tenantId) {
-          setActiveClientId(identity.tenantId);
-        }
-        setIsAdminPanelOpen(true);
-        break;
-      case 'EMPLOYEE_WORKSPACE':
-        if (identity.type === 'TENANT_EMPLOYEE') {
-          setEmployeeWorkspaceData({
-            tenantId: identity.tenantId || activeClientId,
-            employeeId: identity.employeeId,
-            permissions: identity.permissions,
-          });
-        }
-        setIsEmployeeWorkspaceOpen(true);
-        break;
-      case 'NO_WORKSPACE':
-        if (identity.type === 'NO_WORKSPACE') {
-          setNoWorkspaceData({
-            reason: identity.reason || 'UNASSIGNED',
-            tenantId: identity.tenantId,
-            userEmail: identity.email,
-          });
-        } else {
-          setNoWorkspaceData({
-            reason: 'UNASSIGNED',
-            userEmail: user?.email,
-          });
-        }
-        setIsNoWorkspaceOpen(true);
-        break;
-      case 'EMAIL_VERIFICATION':
-        setEmailVerificationEmail(('email' in identity && identity.email) || user?.email || '');
-        setIsEmailVerificationOpen(true);
-        break;
-      default:
-        setIsAdminPanelOpen(true);
-        break;
-    }
   };
 
   return (
@@ -581,6 +671,26 @@ function AppShell() {
           setIsUniversalLoginOpen(true);
         }}
       />
+
+      {/* Tenant Invitation Acceptance Modal */}
+      {invitationData && (
+        <InvitationAcceptanceModal
+          isOpen={Boolean(invitationData)}
+          onClose={() => {
+            setInvitationData(null);
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('inviteId');
+              url.searchParams.delete('token');
+              window.history.replaceState({}, '', url.toString());
+            } catch {}
+          }}
+          invitationId={invitationData.invitationId}
+          token={invitationData.token}
+          clientIdHint={invitationData.clientIdHint}
+          onAccepted={handleInvitationAccepted}
+        />
+      )}
     </>
   );
 }

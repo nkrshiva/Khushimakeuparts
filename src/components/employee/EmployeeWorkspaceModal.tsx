@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, UserCheck, Calendar, Clock, Scissors, ShieldCheck, LogOut, CheckCircle2 } from 'lucide-react';
+import { X, UserCheck, Calendar, Clock, Scissors, ShieldCheck, LogOut, CheckCircle2, ShieldAlert, Check, CheckCheck, Ban } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { bookingService } from '../../services/booking';
-import type { AppointmentItem } from '../../domain/booking/types';
+import { authorizationService } from '../../services/auth/AuthorizationService';
+import type { AppointmentItem, AppointmentStatus } from '../../domain/booking/types';
 
 interface EmployeeWorkspaceModalProps {
   isOpen: boolean;
@@ -11,6 +12,14 @@ interface EmployeeWorkspaceModalProps {
   tenantName?: string;
   employeeId?: string;
   permissions?: string[];
+}
+
+function maskPhoneNumber(phone?: string): string {
+  if (!phone) return '••••••••••';
+  const clean = phone.replace(/[^0-9]/g, '');
+  if (clean.length <= 4) return '•••• ' + clean;
+  const last4 = clean.slice(-4);
+  return `•••• ••${last4}`;
 }
 
 export const EmployeeWorkspaceModal: React.FC<EmployeeWorkspaceModalProps> = ({
@@ -24,9 +33,15 @@ export const EmployeeWorkspaceModal: React.FC<EmployeeWorkspaceModalProps> = ({
   const { user, logout } = useAuth();
   const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Authoritative permission gates
+  const canViewSchedule = authorizationService.hasEmployeePermission(permissions, 'view_schedule');
+  const canManageAppointments = authorizationService.hasEmployeePermission(permissions, 'manage_appointments');
+  const canViewCustomerPii = authorizationService.hasEmployeePermission(permissions, 'view_customer_pii');
 
   useEffect(() => {
-    if (!isOpen || !tenantId) return;
+    if (!isOpen || !tenantId || !canViewSchedule) return;
 
     setLoading(true);
     const unsubscribe = bookingService.subscribeAppointments(
@@ -44,7 +59,22 @@ export const EmployeeWorkspaceModal: React.FC<EmployeeWorkspaceModalProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [isOpen, tenantId]);
+  }, [isOpen, tenantId, canViewSchedule]);
+
+  const handleStatusChange = async (aptId: string, newStatus: AppointmentStatus) => {
+    if (!canManageAppointments) {
+      alert('Permission Denied: You do not possess the "manage_appointments" permission.');
+      return;
+    }
+    setUpdatingId(aptId);
+    try {
+      await bookingService.updateAppointmentStatus(tenantId, aptId, newStatus);
+    } catch (e) {
+      console.warn('Failed to update appointment status:', e);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -125,11 +155,25 @@ export const EmployeeWorkspaceModal: React.FC<EmployeeWorkspaceModalProps> = ({
         <div className="flex-1 overflow-y-auto pr-1">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] text-[#fed488] uppercase tracking-wider font-semibold">
-              Today's Schedule & Appointments ({appointments.length})
+              Today's Schedule & Appointments ({canViewSchedule ? appointments.length : 0})
             </span>
+            {!canViewCustomerPii && canViewSchedule && (
+              <span className="text-[10px] text-amber-400/90 font-mono flex items-center gap-1">
+                🔒 PII Masked (No view_customer_pii permission)
+              </span>
+            )}
           </div>
 
-          {loading ? (
+          {!canViewSchedule ? (
+            <div className="p-8 text-center rounded-2xl bg-amber-950/40 border border-amber-500/30 text-xs text-amber-200 space-y-2">
+              <ShieldAlert className="w-8 h-8 text-amber-400 mx-auto" />
+              <p className="font-semibold">Access Restricted</p>
+              <p className="text-zinc-400 text-[11px]">
+                You do not possess the "view_schedule" permission required to view appointment bookings.
+                Please contact your Salon Administrator to request access.
+              </p>
+            </div>
+          ) : loading ? (
             <div className="p-8 text-center text-xs text-zinc-400">Loading scheduled bookings...</div>
           ) : appointments.length === 0 ? (
             <div className="p-8 text-center rounded-2xl bg-black/20 border border-white/5 text-xs text-zinc-400 space-y-2">
@@ -138,36 +182,76 @@ export const EmployeeWorkspaceModal: React.FC<EmployeeWorkspaceModalProps> = ({
             </div>
           ) : (
             <div className="space-y-2">
-              {appointments.slice(0, 10).map((apt) => (
-                <div
-                  key={apt.id}
-                  className="p-3 rounded-xl bg-black/30 border border-white/10 flex items-center justify-between text-xs"
-                >
-                  <div className="space-y-0.5">
-                    <div className="font-medium text-white flex items-center gap-2">
-                      <span>{apt.customerName}</span>
-                      <span className="text-[10px] text-zinc-400 font-mono">({apt.customerPhone})</span>
+              {appointments.slice(0, 10).map((apt) => {
+                const phoneDisplay = canViewCustomerPii ? apt.customerPhone : maskPhoneNumber(apt.customerPhone);
+                const isUpdating = updatingId === apt.id;
+
+                return (
+                  <div
+                    key={apt.id}
+                    className="p-3 rounded-xl bg-black/30 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="space-y-0.5">
+                      <div className="font-medium text-white flex items-center gap-2">
+                        <span>{apt.customerName}</span>
+                        <span className="text-[10px] text-zinc-400 font-mono">({phoneDisplay})</span>
+                      </div>
+                      <div className="text-[11px] text-zinc-400 flex items-center gap-2">
+                        <span className="text-[#fed488]">{apt.serviceTitle || apt.serviceId}</span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-zinc-400" />
+                          {apt.timeSlot || `${apt.startMinute}m`}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-zinc-400 flex items-center gap-2">
-                      <span className="text-[#fed488]">{apt.serviceTitle || apt.serviceId}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-zinc-400" />
-                        {apt.timeSlot || `${apt.startMinute}m`}
+
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                          apt.status === 'confirmed'
+                            ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                            : apt.status === 'completed'
+                            ? 'bg-blue-950/80 text-blue-300 border border-blue-500/40'
+                            : apt.status === 'cancelled'
+                            ? 'bg-rose-950/80 text-rose-300 border border-rose-500/40'
+                            : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
+                        }`}
+                      >
+                        {apt.status}
                       </span>
+
+                      {/* Gated Status Management Actions */}
+                      {canManageAppointments && (
+                        <div className="flex items-center gap-1">
+                          {apt.status !== 'completed' && (
+                            <button
+                              disabled={isUpdating}
+                              onClick={() => handleStatusChange(apt.id, 'completed')}
+                              title="Mark as Completed"
+                              className="px-2 py-0.5 rounded bg-blue-900/60 hover:bg-blue-800 text-blue-200 text-[10px] font-medium transition-colors cursor-pointer border border-blue-500/30 flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <CheckCheck className="w-3 h-3" />
+                              <span>Complete</span>
+                            </button>
+                          )}
+                          {apt.status !== 'cancelled' && (
+                            <button
+                              disabled={isUpdating}
+                              onClick={() => handleStatusChange(apt.id, 'cancelled')}
+                              title="Mark as Cancelled"
+                              className="px-2 py-0.5 rounded bg-rose-900/60 hover:bg-rose-800 text-rose-200 text-[10px] font-medium transition-colors cursor-pointer border border-rose-500/30 flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <Ban className="w-3 h-3" />
+                              <span>Cancel</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                      apt.status === 'confirmed'
-                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
-                    }`}
-                  >
-                    {apt.status}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

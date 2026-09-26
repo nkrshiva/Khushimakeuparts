@@ -24,6 +24,8 @@ export const NoWorkspaceModal: React.FC<NoWorkspaceModalProps> = ({
 
   const getReasonMessage = () => {
     switch (reason) {
+      case 'TENANT_PENDING_ACTIVATION':
+        return `The tenant workspace (${tenantId || 'assigned tenant'}) has been provisioned but is pending invitation acceptance. Please check your invitation link to activate access.`;
       case 'TENANT_SUSPENDED':
         return `The tenant workspace (${tenantId || 'assigned tenant'}) is currently set to suspended or inactive in the Master Registry. Please reach out to the Platform Developer for billing or reactivation details.`;
       case 'TENANT_NOT_FOUND':

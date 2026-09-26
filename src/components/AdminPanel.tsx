@@ -137,7 +137,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     appointments,
     enquiries,
   } = useSiteContent();
-  const { isAdmin, user, logout } = useAuth();
+  const { user, logout } = useAuth();
   const { role, isDeveloper, assignedClientId } = useTenant();
 
   // Local draft state for editing before saving
@@ -473,7 +473,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jsonImportRef = useRef<HTMLInputElement>(null);
 
-  if (!isOpen) return null;
+  if (!isOpen || !authorizationService.canAccessAdminPanel(role)) return null;
 
   const showNotice = (type: 'success' | 'error', text: string) => {
     setStatusMsg({ type, text });
@@ -1248,6 +1248,7 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
                 showNotice('success', 'Staff roster updated! Click "Save & Publish Live" to persist.');
               }}
               onUploadPhoto={processAndUploadFile}
+              tenantId={activeClientId}
             />
           )}
 

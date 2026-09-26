@@ -19,10 +19,58 @@ export interface TenantUserProfile {
   assignedClientId?: string | null;
   employeeId?: string;
   permissions?: string[];
+  displayName?: string;
+  active?: boolean;
+  invitationId?: string;
+  invitationAcceptedAt?: string;
   updatedAt?: string;
 }
 
-export type TenantLifecycleStatus = 'active' | 'suspended' | 'archived';
+export type TenantLifecycleStatus = 'active' | 'suspended' | 'archived' | 'pending_invitation';
+
+export type TenantInvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
+
+export interface TenantInvitation {
+  invitationId: string;
+  clientId: string;
+  invitedOwnerEmail: string;
+  invitedByUid: string;
+  invitedByEmail: string;
+  status: TenantInvitationStatus;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string | null;
+  acceptedByUid?: string | null;
+  revokedAt?: string | null;
+  revokedByUid?: string | null;
+}
+
+export interface CreateInvitationInput {
+  clientId: string;
+  invitedOwnerEmail: string;
+  invitedByUid: string;
+  invitedByEmail: string;
+  expiresInHours?: number;
+  customToken?: string;
+}
+
+export interface AcceptInvitationInput {
+  invitationId: string;
+  token: string;
+  acceptingUser: {
+    uid: string;
+    email: string;
+    emailVerified?: boolean;
+  };
+}
+
+export interface AcceptInvitationResult {
+  success: boolean;
+  clientId?: string;
+  invitation?: TenantInvitation;
+  error?: string;
+}
 
 export type BusinessArchetype =
   | 'solo_mua'         // Solo Makeup Artist (bridal focus, auspicious calendar, venue visits)
@@ -39,8 +87,9 @@ export interface ClientTenantSummary {
   instagram: string; // Instagram handle
   customDomain?: string; // Optional custom domain or subdomain
   archetype?: BusinessArchetype; // Tenant archetype preset (solo_mua, hair_salon, beauty_parlour, hybrid_atelier)
-  status?: TenantLifecycleStatus; // 'active' | 'suspended' | 'archived'
+  status?: TenantLifecycleStatus; // 'active' | 'suspended' | 'archived' | 'pending_invitation'
   active: boolean; // Whether the site is live (alias for status === 'active')
+  invitedOwnerEmail?: string; // Invited owner email for pending_invitation onboarding
   createdAt: string;
   updatedAt: string;
 }
@@ -78,12 +127,14 @@ export interface CreateTenantInput {
   instagram: string;
   customDomain?: string;
   archetype?: BusinessArchetype;
+  invitedOwnerEmail?: string;
 }
 
 export interface CreateTenantResult {
   success: boolean;
   id?: string;
   summary?: ClientTenantSummary;
+  invitation?: TenantInvitation;
   error?: string;
 }
 

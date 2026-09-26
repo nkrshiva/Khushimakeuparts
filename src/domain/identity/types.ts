@@ -56,7 +56,9 @@ export type NoWorkspaceReason =
   | 'UNASSIGNED'
   | 'TENANT_SUSPENDED'
   | 'TENANT_NOT_FOUND'
-  | 'INACTIVE_ACCOUNT';
+  | 'INACTIVE_ACCOUNT'
+  | 'TENANT_PENDING_ACTIVATION';
+
 
 /**
  * Authenticated User with No Workspace

@@ -10,6 +10,9 @@ import type {
   DeleteTenantResult,
   SyncModulesConfig,
   SyncClientsResult,
+  TenantInvitation,
+  AcceptInvitationInput,
+  AcceptInvitationResult,
 } from '../../domain/tenant/types';
 import { DEFAULT_MAIN_CLIENT } from '../../domain/tenant/types';
 import type { SiteContent } from '../../domain/content/types';
@@ -146,8 +149,9 @@ export class TenantService {
         instagram: tenantData.instagram.trim() || '@salon',
         customDomain: tenantData.customDomain?.trim() || undefined,
         archetype: tenantData.archetype || 'solo_mua',
-        status: 'active',
-        active: true,
+        status: 'pending_invitation',
+        active: false,
+        invitedOwnerEmail: tenantData.invitedOwnerEmail?.trim().toLowerCase() || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -162,10 +166,108 @@ export class TenantService {
       });
       await this.repository.saveClientsRegistry(updatedList);
 
-      return { success: true, id, summary: newSummary };
+      // If invitedOwnerEmail is provided, create the onboarding invitation
+      let invitation: TenantInvitation | undefined;
+      if (tenantData.invitedOwnerEmail?.trim()) {
+        invitation = await this.repository.createInvitation({
+          clientId: id,
+          invitedOwnerEmail: tenantData.invitedOwnerEmail.trim(),
+          invitedByUid: 'master_developer',
+          invitedByEmail: 'naveen.kr.shiva@gmail.com',
+        });
+      }
+
+      return { success: true, id, summary: newSummary, invitation };
     } catch (err: any) {
       console.error('Failed to create client tenant site:', err);
       return { success: false, error: err?.message || 'Failed to create client website' };
+    }
+  }
+
+  /**
+   * Retrieves an invitation by ID.
+   */
+  async getInvitation(invitationId: string): Promise<TenantInvitation | null> {
+    return this.repository.getInvitation(invitationId);
+  }
+
+  /**
+   * Retrieves an invitation by secure token.
+   */
+  async getInvitationByToken(token: string): Promise<TenantInvitation | null> {
+    return this.repository.getInvitationByToken(token);
+  }
+
+  /**
+   * Retrieves all pending invitations for a specific tenant.
+   */
+  async getPendingInvitationsForTenant(clientId: string): Promise<TenantInvitation[]> {
+    return this.repository.getPendingInvitationsForTenant(clientId);
+  }
+
+  /**
+   * Accepts and consumes an onboarding invitation for an authenticated Google user.
+   */
+  async acceptInvitation(input: AcceptInvitationInput): Promise<AcceptInvitationResult> {
+    return this.repository.acceptInvitation(input);
+  }
+
+  /**
+   * Revokes an existing invitation (Developer only).
+   */
+  async revokeInvitation(role: TenantRole, invitationId: string, revokedByUid?: string): Promise<{ success: boolean; error?: string }> {
+    if (!authorizationService.canManageTenantLifecycle(role)) {
+      return { success: false, error: 'Unauthorized: Only developers can revoke invitations.' };
+    }
+    try {
+      await this.repository.revokeInvitation(invitationId, revokedByUid);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to revoke invitation.' };
+    }
+  }
+
+  /**
+   * Resends an onboarding invitation for a pending tenant:
+   * 1. Revokes any existing pending invitations for this tenant.
+   * 2. Issues a fresh invitation record with a new token and 72h expiry.
+   * STRICT SECURITY: Only Platform Developers can resend invitations.
+   */
+  async resendInvitation(
+    role: TenantRole,
+    clientId: string,
+    invitedOwnerEmail: string,
+    developerUid: string = 'master_developer',
+    developerEmail: string = 'naveen.kr.shiva@gmail.com'
+  ): Promise<{ success: boolean; invitation?: TenantInvitation; error?: string }> {
+    if (!authorizationService.canManageTenantLifecycle(role)) {
+      return { success: false, error: 'Unauthorized: Only developers can resend tenant invitations.' };
+    }
+
+    try {
+      const cleanEmail = invitedOwnerEmail.trim().toLowerCase();
+      if (!cleanEmail) {
+        return { success: false, error: 'Recipient email is required to resend invitation.' };
+      }
+
+      // 1. Invalidate any existing pending invitations for this client tenant
+      const existingPending = await this.repository.getPendingInvitationsForTenant(clientId);
+      for (const inv of existingPending) {
+        await this.repository.revokeInvitation(inv.invitationId, developerUid);
+      }
+
+      // 2. Create a fresh single-use invitation
+      const freshInvitation = await this.repository.createInvitation({
+        clientId,
+        invitedOwnerEmail: cleanEmail,
+        invitedByUid: developerUid,
+        invitedByEmail: developerEmail,
+      });
+
+      return { success: true, invitation: freshInvitation };
+    } catch (err: any) {
+      console.error('[TenantService] Failed to resend invitation:', err);
+      return { success: false, error: err?.message || 'Failed to generate new invitation.' };
     }
   }
 

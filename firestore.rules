@@ -8,6 +8,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function getUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+    }
+
     // Role-based Master Developer check (Strictly checks token custom claims or authoritative Firestore /users/{uid} matching the master admin identity)
     function isDeveloper() {
       return isSignedIn() &&
@@ -15,17 +21,24 @@ service cloud.firestore {
         request.auth.token.email.lower() == 'naveen.kr.shiva@gmail.com' &&
         (
           request.auth.token.role == 'developer' ||
-          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'developer')
+          getUserData().get('role', '') == 'developer'
         );
     }
 
-    // Checks if the user is authorized to manage a specific client tenant website
+    // Authoritative Tenant Owner check (Requires developer OR authenticated client role assigned strictly to clientId)
     function isTenantOwner(clientId) {
       return isSignedIn() && (
         isDeveloper() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.assignedClientId == clientId)
+        (getUserData().get('role', '') == 'client' &&
+         getUserData().get('assignedClientId', '') == clientId)
+      );
+    }
+
+    // Authoritative Tenant Employee check (Subordinate member with employee role assigned strictly to clientId)
+    function isTenantEmployee(clientId) {
+      return isSignedIn() && (
+        getUserData().get('role', '') == 'employee' &&
+        getUserData().get('assignedClientId', '') == clientId
       );
     }
 
@@ -38,34 +51,49 @@ service cloud.firestore {
       // Platform developers create brand new tenant websites
       allow create: if isDeveloper();
 
-      // Only authorized tenant owner or developer can edit website content
+      // Only authorized Tenant Owner, Developer, or Invited Owner activating tenant can edit website document
       // STRICT SECURITY:
       // 1. Forbid storing operational data or private staff PII in public parent document
       // 2. Prevent tenant ID reassignment/hijacking
-      allow update: if isTenantOwner(clientId) &&
+      // 3. Activation strictly requires matching valid invitation, transitioning pending_invitation -> active
+      allow update: if (
+        isTenantOwner(clientId) ||
+        (
+          resource.data.status == 'pending_invitation' &&
+          request.resource.data.status == 'active' &&
+          request.resource.data.active == true &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'active', 'updatedAt', 'activatedByInvitationId']) &&
+          'activatedByInvitationId' in request.resource.data &&
+          exists(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.activatedByInvitationId)) &&
+          get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.activatedByInvitationId)).data.clientId == clientId &&
+          get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.activatedByInvitationId)).data.invitedOwnerEmail.lower() == request.auth.token.email.lower()
+        )
+      ) &&
         (!('id' in request.resource.data) || request.resource.data.id == resource.data.id || request.resource.data.id == clientId) &&
         !request.resource.data.keys().hasAny(['appointments', 'enquiries', 'customers', 'staff_private']) &&
         (!('content' in request.resource.data) || !request.resource.data.content.keys().hasAny(['appointments', 'enquiries', 'customers', 'staff_private']));
+
       
       // Only platform developers can delete a client tenant
       allow delete: if isDeveloper();
 
       // 1. Time-slot appointments subcollection (isolated per tenant)
       match /appointments/{appointmentId} {
-        // Public booking creation or tenant owner manual booking
-        allow create: if isTenantOwner(clientId) || (
+        // Public booking creation, tenant owner, or authorized employee manual booking
+        allow create: if isTenantOwner(clientId) || isTenantEmployee(clientId) || (
           request.resource.data.clientId == clientId &&
           request.resource.data.keys().hasAll(['customerName', 'customerPhone', 'serviceId', 'date', 'timeSlot', 'startMinute', 'endMinute', 'status']) &&
           request.resource.data.status in ['pending', 'confirmed']
         );
 
-        // Only the tenant owner or developer can view customer PII, update status, or delete appointments
-        allow read: if isTenantOwner(clientId);
+        // Tenant owner, developer, and assigned tenant employee can read appointments
+        allow read: if isTenantOwner(clientId) || isTenantEmployee(clientId);
 
-        // Updates cannot alter the tenant ownership
-        allow update: if isTenantOwner(clientId) &&
+        // Tenant owner and authorized assigned employee can update appointments without altering tenant ownership
+        allow update: if (isTenantOwner(clientId) || isTenantEmployee(clientId)) &&
           (!('clientId' in request.resource.data) || request.resource.data.clientId == resource.data.clientId);
 
+        // STRICT: Only the tenant owner or developer can delete appointments. Employees CANNOT delete appointments.
         allow delete: if isTenantOwner(clientId);
       }
 
@@ -108,29 +136,32 @@ service cloud.firestore {
 
       // 4. Lead enquiries subcollection (isolated per tenant)
       match /enquiries/{enquiryId} {
-        // Brides & public visitors can submit booking enquiries, or tenant owner can record them
-        allow create: if isTenantOwner(clientId) || (
+        // Brides & public visitors can submit booking enquiries, or tenant owner / employee can record them
+        allow create: if isTenantOwner(clientId) || isTenantEmployee(clientId) || (
           request.resource.data.phone is string &&
           (('clientName' in request.resource.data) || ('name' in request.resource.data)) &&
           (!('clientId' in request.resource.data) || request.resource.data.clientId == clientId) &&
           (!('status' in request.resource.data) || request.resource.data.status in ['new', 'pending'])
         );
 
-        // Only the tenant owner or master developer can view, update status, or delete enquiries
-        allow read: if isTenantOwner(clientId);
+        // Tenant owner, developer, and assigned tenant employee can read enquiries
+        allow read: if isTenantOwner(clientId) || isTenantEmployee(clientId);
 
-        allow update: if isTenantOwner(clientId) &&
-          (!('clientId' in request.resource.data) || !('clientId' in resource.data) || request.resource.data.clientId == resource.data.clientId);
+        allow update: if isTenantOwner(clientId) || (
+          isTenantEmployee(clientId) &&
+          (!('clientId' in request.resource.data) || !('clientId' in resource.data) || request.resource.data.clientId == resource.data.clientId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'notes', 'updatedAt'])
+        );
 
         allow delete: if isTenantOwner(clientId);
       }
 
-      // 4b. Customer CRM directory (isolated per tenant, private to tenant owner)
+      // 4b. Customer CRM directory (isolated per tenant, strictly private to tenant owner)
       match /customers/{customerId} {
         allow create, read, update, delete: if isTenantOwner(clientId);
       }
 
-      // 5. Private staff operational records (internal notes, private phone, salary)
+      // 5. Private staff operational records (internal notes, private phone, salary - strictly private to tenant owner)
       match /staff_private/{staffId} {
         allow read, create, update, delete: if isTenantOwner(clientId);
       }
@@ -156,11 +187,31 @@ service cloud.firestore {
     // ─── USER PROFILES & RBAC (PRIVILEGE ESCALATION SHIELD) ─────────────────
 
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isDeveloper());
-      allow delete: if isDeveloper();
+      // Read access:
+      // 1. User themselves
+      // 2. Platform Developer
+      // 3. Authenticated user with matching verified email
+      // 4. Tenant Owner reading an employee belonging to their own tenant
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId ||
+        isDeveloper() ||
+        (resource.data.email != null && request.auth.token.email != null && resource.data.email.lower() == request.auth.token.email.lower()) ||
+        (resource.data.role == 'employee' && isTenantOwner(resource.data.assignedClientId))
+      );
 
-      // Normal users can only register their own profile with non-developer role and zero assigned tenant
-      // Master admin bootstrap is allowed strictly for naveen.kr.shiva@gmail.com
+      // Delete access:
+      // 1. Platform Developer
+      // 2. Tenant Owner deleting an employee belonging to their own tenant
+      allow delete: if isSignedIn() && (
+        isDeveloper() ||
+        (isTenantOwner(resource.data.assignedClientId) && resource.data.role == 'employee')
+      );
+
+      // Create access:
+      // 1. Platform Developer
+      // 2. Master Platform Admin bootstrap strictly for naveen.kr.shiva@gmail.com
+      // 3. Normal users registering own non-privileged profile (role != developer, no assigned tenant, no permissions)
+      // 4. Tenant Owner creating an employee profile belonging to their own tenant
       allow create: if isSignedIn() && (
         isDeveloper() ||
         (request.auth.uid == userId &&
@@ -170,18 +221,91 @@ service cloud.firestore {
          (!('assignedClientId' in request.resource.data) || request.resource.data.assignedClientId == null)) ||
         (request.auth.uid == userId &&
          request.resource.data.role != 'developer' &&
+         request.resource.data.role != 'client' &&
          (!('assignedClientId' in request.resource.data) || request.resource.data.assignedClientId == null) &&
-         (!('permissions' in request.resource.data) || request.resource.data.permissions == null || request.resource.data.permissions == []))
+         (!('permissions' in request.resource.data) || request.resource.data.permissions == null || request.resource.data.permissions == [])) ||
+        (isTenantOwner(request.resource.data.assignedClientId) &&
+         request.resource.data.role == 'employee' &&
+         request.resource.data.assignedClientId is string) ||
+        (request.auth.uid == userId &&
+         request.resource.data.role == 'client' &&
+         request.resource.data.assignedClientId is string &&
+         'invitationId' in request.resource.data &&
+         exists(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)) &&
+         get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.clientId == request.resource.data.assignedClientId &&
+          get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.invitedOwnerEmail.lower() == request.auth.token.email.lower() &&
+          (
+            get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.status == 'pending' ||
+            get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.acceptedByUid == request.auth.uid
+          ))
       );
 
-      // Normal users cannot change their role, assigned tenant, or grant themselves permissions
+      // Update access:
+      // 1. Platform Developer
+      // 2. User updating their own profile with immutable role, assignedClientId, and permissions
+      // 3. Tenant Owner managing an employee profile belonging strictly to their own tenant
+      // 4. Authenticated user accepting a verified invitation issued strictly to their email
       allow update: if isSignedIn() && (
         isDeveloper() ||
         (request.auth.uid == userId &&
          (!('role' in request.resource.data) || (('role' in resource.data) && request.resource.data.role == resource.data.role)) &&
          (!('assignedClientId' in request.resource.data) || (('assignedClientId' in resource.data) && request.resource.data.assignedClientId == resource.data.assignedClientId)) &&
-         (!('permissions' in request.resource.data) || (('permissions' in resource.data) && request.resource.data.permissions == resource.data.permissions)))
+         (!('permissions' in request.resource.data) || (('permissions' in resource.data) && request.resource.data.permissions == resource.data.permissions))) ||
+        (isTenantOwner(resource.data.assignedClientId) &&
+         resource.data.role == 'employee' &&
+         request.resource.data.role == 'employee' &&
+         request.resource.data.assignedClientId == resource.data.assignedClientId) ||
+        (request.auth.uid == userId &&
+         request.resource.data.role == 'client' &&
+         request.resource.data.assignedClientId is string &&
+         'invitationId' in request.resource.data &&
+         exists(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)) &&
+         get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.clientId == request.resource.data.assignedClientId &&
+         get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.invitedOwnerEmail.lower() == request.auth.token.email.lower() &&
+          (
+            get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.status == 'pending' ||
+            get(/databases/$(database)/documents/tenant_invitations/$(request.resource.data.invitationId)).data.acceptedByUid == request.auth.uid
+          ))
       );
+    }
+
+    // ─── TENANT ONBOARDING INVITATIONS ──────────────────────────────────────
+
+    match /tenant_invitations/{invitationId} {
+      // 1. Read: Platform developers can read all invitations;
+      //    Invited users can read if authenticated email matches invitedOwnerEmail
+      allow read: if isSignedIn() && (
+        isDeveloper() ||
+        (request.auth.token.email != null &&
+         resource.data.invitedOwnerEmail != null &&
+         resource.data.invitedOwnerEmail.lower() == request.auth.token.email.lower())
+      );
+
+      // 2. Create: Strictly Platform Developers
+      allow create: if isDeveloper() &&
+        request.resource.data.keys().hasAll(['invitationId', 'clientId', 'invitedOwnerEmail', 'status', 'token', 'createdAt', 'expiresAt']) &&
+        request.resource.data.status == 'pending';
+
+      // 3. Update: Developer can revoke or update invitation;
+      //    Invited user can accept (strictly transition pending -> accepted, matching email, tying to their auth.uid, clientId immutable)
+      allow update: if isSignedIn() && (
+        isDeveloper() ||
+        (
+          request.auth.token.email != null &&
+          resource.data.invitedOwnerEmail != null &&
+          resource.data.invitedOwnerEmail.lower() == request.auth.token.email.lower() &&
+          resource.data.status == 'pending' &&
+          (!('expiresAt' in resource.data) || !(resource.data.expiresAt is timestamp) || request.time < resource.data.expiresAt) &&
+          request.resource.data.status == 'accepted' &&
+          request.resource.data.acceptedByUid == request.auth.uid &&
+          request.resource.data.clientId == resource.data.clientId &&
+          request.resource.data.invitedOwnerEmail == resource.data.invitedOwnerEmail &&
+          request.resource.data.token == resource.data.token
+        )
+      );
+
+      // 4. Delete: Strictly Platform Developer only
+      allow delete: if isDeveloper();
     }
 
     // ─── GLOBAL SYSTEM SETTINGS & REGISTRY ──────────────────────────────────
@@ -192,3 +316,4 @@ service cloud.firestore {
     }
   }
 }
+
