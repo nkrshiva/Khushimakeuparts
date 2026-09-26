@@ -1,0 +1,131 @@
+/**
+ * Authoritative Active Tenant Role
+ *
+ * Defines the authoritative active roles for platform and tenant authorization:
+ * - 'developer': Platform Super Admin / Master Admin (access to all tenants & Master Cockpit)
+ * - 'client': Tenant Owner / Salon Administrator (scoped strictly to assigned tenant)
+ */
+export type ActiveTenantRole = 'developer' | 'client' | 'employee';
+
+/**
+ * TenantRole in session/context state. Represents an active tenant role or `null` when unauthenticated.
+ */
+export type TenantRole = ActiveTenantRole | null;
+
+export interface TenantUserProfile {
+  uid?: string;
+  email?: string;
+  role?: ActiveTenantRole;
+  assignedClientId?: string | null;
+  employeeId?: string;
+  permissions?: string[];
+  updatedAt?: string;
+}
+
+export type TenantLifecycleStatus = 'active' | 'suspended' | 'archived';
+
+export type BusinessArchetype =
+  | 'solo_mua'         // Solo Makeup Artist (bridal focus, auspicious calendar, venue visits)
+  | 'hair_salon'       // Hair & Styling Salon (time slots, chairs, hair length tiers, stylists)
+  | 'beauty_parlour'   // Parlour & Skin Aesthetics (facials, wax, threading, treatment rooms)
+  | 'hybrid_atelier';  // Hybrid Luxury Atelier (bridal vanity + in-studio salon & aesthetics)
+
+export interface ClientTenantSummary {
+  id: string; // Unique URL slug, e.g. 'khushi', 'hina-hair-works'
+  name: string; // Salon / Business Name
+  founder: string; // Artist / Lead Name
+  city: string; // Location / City
+  phone: string; // WhatsApp / Phone
+  instagram: string; // Instagram handle
+  customDomain?: string; // Optional custom domain or subdomain
+  archetype?: BusinessArchetype; // Tenant archetype preset (solo_mua, hair_salon, beauty_parlour, hybrid_atelier)
+  status?: TenantLifecycleStatus; // 'active' | 'suspended' | 'archived'
+  active: boolean; // Whether the site is live (alias for status === 'active')
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ModuleId =
+  | 'coreCMS'               // Base branding, contacts, SEO, analytics
+  | 'bridalPortfolio'       // Bridal looks, model galleries, video showcase
+  | 'muaMuhuratCalendar'    // Auspicious wedding date availability markers
+  | 'bridalPackages'        // Tiered luxury bridal packages
+  | 'beforeAfterGallery'    // Transformation slider & looks comparison
+  | 'videoShowcase'         // YouTube Shorts / reels portfolio
+  | 'timeSlotBooking'       // Hourly / minute-interval appointment booking engine
+  | 'staffManagement'       // Team members, stylists, aestheticians & assignments
+  | 'serviceVariants'       // Length/tier-based pricing (Short/Medium/Long, Junior/Senior)
+  | 'businessHours'         // Day-by-day opening hours, break times, and closed days
+  | 'leadEnquiries'         // Wedding & event inquiry inbox
+  | 'appointmentBookings'   // Confirmed appointment schedule manager
+  | 'offerPopup'            // Artistic popup modal for seasonal promotions
+  | 'reviewsModeration'     // Verified client reviews and selfie submission queue
+  | 'walkInQueue';          // Live token / walk-in status
+
+export interface ModuleConfig {
+  id: ModuleId;
+  name: string;
+  description: string;
+  category: 'booking' | 'marketing' | 'operations' | 'content';
+  defaultEnabled: boolean;
+}
+
+export interface CreateTenantInput {
+  name: string;
+  founder: string;
+  city: string;
+  phone: string;
+  instagram: string;
+  customDomain?: string;
+  archetype?: BusinessArchetype;
+}
+
+export interface CreateTenantResult {
+  success: boolean;
+  id?: string;
+  summary?: ClientTenantSummary;
+  error?: string;
+}
+
+export interface SetTenantStatusResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface DeleteTenantResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface SyncModulesConfig {
+  services?: boolean;
+  preserveClientPricing?: boolean;
+  bridalPackages?: boolean;
+  portfolio?: boolean;
+  videos?: boolean;
+  faqs?: boolean;
+  sectionsVisibility?: boolean;
+  announcementBar?: boolean;
+  benefits?: boolean;
+  testimonials?: boolean;
+}
+
+export interface SyncClientsResult {
+  success: boolean;
+  updatedCount: number;
+  error?: string;
+}
+
+export const DEFAULT_MAIN_CLIENT: ClientTenantSummary = {
+  id: 'khushi',
+  name: 'Khushi Makeup Arts',
+  founder: 'Khushi Kumari',
+  city: 'Siwan, Bihar',
+  phone: '+91 91621 43273',
+  instagram: '@khushimakeuparts',
+  archetype: 'solo_mua',
+  status: 'active',
+  active: true,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: new Date().toISOString(),
+};

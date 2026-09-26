@@ -7,3 +7,8 @@ coverage/
 .env*
 !.env.example
 .antigravity/
+
+# Local audit report artifacts
+KhushiMakeupArts_Architecture_Security_Report.html
+Step9_Architecture_Boundary_Audit_Report.html
+Step9_Architecture_Boundary_Audit_Report.pdf

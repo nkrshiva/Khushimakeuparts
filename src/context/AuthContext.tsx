@@ -1,32 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import {
-  User,
-  signInWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  sendPasswordResetEmail,
-} from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
-import { isBootstrapDeveloperEmail, PLATFORM_BOOTSTRAP_DEVELOPER_EMAILS } from '../config/adminCredentials';
-
-export type AdminRole = 'developer' | 'client' | null;
-
-export interface UserProfile {
-  uid: string;
-  email: string;
-  role: 'developer' | 'client';
-  assignedClientId?: string;
-  displayName?: string;
-  updatedAt: string;
-}
+import type { User } from '../services/auth/AuthService';
+import { authService } from '../services/auth/AuthService';
 
 interface AuthContextType {
   user: User | null;
   isAdmin: boolean;
-  role: AdminRole;
-  isDeveloper: boolean;
-  assignedClientId: string | null;
   loading: boolean;
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
@@ -34,10 +12,11 @@ interface AuthContextType {
 }
 
 const LOCAL_ADMIN_KEY = 'platform_admin_session';
+const LEGACY_ADMIN_KEY = 'khushi_admin_local_session';
+
+// Storage cleanup keys on logout
 const LOCAL_ROLE_KEY = 'platform_admin_role';
 const LOCAL_CLIENT_ID_KEY = 'platform_admin_assigned_tenant';
-
-const LEGACY_ADMIN_KEY = 'khushi_admin_local_session';
 const LEGACY_ROLE_KEY = 'khushi_admin_role';
 const LEGACY_CLIENT_ID_KEY = 'khushi_admin_client_id';
 
@@ -45,106 +24,26 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [localAdmin, setLocalAdmin] = useState<boolean>(() => {
-    try {
-      const val = localStorage.getItem(LOCAL_ADMIN_KEY) || localStorage.getItem(LEGACY_ADMIN_KEY);
-      return val === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [role, setRole] = useState<AdminRole>(() => {
-    try {
-      return ((localStorage.getItem(LOCAL_ROLE_KEY) || localStorage.getItem(LEGACY_ROLE_KEY)) as AdminRole) || null;
-    } catch {
-      return null;
-    }
-  });
-  const [assignedClientId, setAssignedClientId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(LOCAL_CLIENT_ID_KEY) || localStorage.getItem(LEGACY_CLIENT_ID_KEY) || null;
-    } catch {
-      return null;
-    }
-  });
   const [loading, setLoading] = useState(true);
 
-  // Sync role and assigned tenant from Firestore or custom claims
-  const resolveUserRoleAndTenant = async (currentUser: User): Promise<{
-    role: AdminRole;
-    assignedClientId: string | null;
-  }> => {
-    const email = currentUser.email?.toLowerCase() || '';
-
-    // 1. Query Firestore user profile for role and assigned tenant mapping
-    if (db) {
-      try {
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const userSnap = await getDoc(userDocRef);
-        if (userSnap.exists()) {
-          const data = userSnap.data();
-          const resolvedRole: AdminRole = data?.role === 'developer' ? 'developer' : 'client';
-          const tenantId = resolvedRole === 'developer' ? null : (data?.assignedClientId || null);
-          return { role: resolvedRole, assignedClientId: tenantId };
-        }
-      } catch (err) {
-        console.warn('Could not read user profile from Firestore:', err);
-      }
-    }
-
-    // 2. Check if email is in the optional platform bootstrap developer list
-    if (isBootstrapDeveloperEmail(email)) {
-      if (db) {
-        try {
-          const userDocRef = doc(db, 'users', currentUser.uid);
-          await setDoc(userDocRef, {
-            uid: currentUser.uid,
-            email,
-            role: 'developer',
-            updatedAt: new Date().toISOString(),
-          }, { merge: true });
-        } catch (err) {
-          console.warn('Developer bootstrap sync notice:', err);
-        }
-      }
-      return { role: 'developer', assignedClientId: null };
-    }
-
-    // 3. Fallback: unassigned client role
-    return { role: 'client', assignedClientId: null };
-  };
-
   useEffect(() => {
-    if (!auth) {
+    if (!authService.isAvailable()) {
       setLoading(false);
       return;
     }
 
     try {
-      const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      const unsubscribe = authService.onAuthStateChanged(async (currentUser) => {
         setUser(currentUser);
         if (currentUser) {
-          const { role: resolvedRole, assignedClientId: resolvedTenant } = await resolveUserRoleAndTenant(currentUser);
-          setRole(resolvedRole);
-          setAssignedClientId(resolvedTenant);
-          setLocalAdmin(true);
-
           try {
             localStorage.setItem(LOCAL_ADMIN_KEY, 'true');
-            if (resolvedRole) localStorage.setItem(LOCAL_ROLE_KEY, resolvedRole);
-            if (resolvedTenant) {
-              localStorage.setItem(LOCAL_CLIENT_ID_KEY, resolvedTenant);
-            } else {
-              localStorage.removeItem(LOCAL_CLIENT_ID_KEY);
-            }
           } catch {}
         } else {
-          // If no active Firebase Auth session, clear unless preserved local admin
-          if (!localStorage.getItem(LOCAL_ADMIN_KEY)) {
-            setRole(null);
-            setAssignedClientId(null);
-            setLocalAdmin(false);
-          }
+          // If no active Firebase Auth session, ensure local storage session flag is cleared
+          try {
+            localStorage.removeItem(LOCAL_ADMIN_KEY);
+          } catch {}
         }
         setLoading(false);
       });
@@ -163,25 +62,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Please provide both email and password.' };
     }
 
-    // 1. Primary: Authenticate via real Firebase Authentication
-    if (auth) {
+    // 1. Primary: Authenticate via AuthService
+    if (authService.isAvailable()) {
       try {
-        const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
-        const { role: resolvedRole, assignedClientId: resolvedTenant } = await resolveUserRoleAndTenant(userCred.user);
+        const userCred = await authService.signIn(cleanEmail, cleanPass);
 
         setUser(userCred.user);
-        setLocalAdmin(true);
-        setRole(resolvedRole);
-        setAssignedClientId(resolvedTenant);
 
         try {
           localStorage.setItem(LOCAL_ADMIN_KEY, 'true');
-          if (resolvedRole) localStorage.setItem(LOCAL_ROLE_KEY, resolvedRole);
-          if (resolvedTenant) {
-            localStorage.setItem(LOCAL_CLIENT_ID_KEY, resolvedTenant);
-          } else {
-            localStorage.removeItem(LOCAL_CLIENT_ID_KEY);
-          }
         } catch {}
 
         return { success: true };
@@ -220,12 +109,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Please enter your email address to reset password.' };
     }
 
-    if (!auth) {
+    if (!authService.isAvailable()) {
       return { success: false, error: 'Firebase Auth is not initialized.' };
     }
 
     try {
-      await sendPasswordResetEmail(auth, cleanEmail);
+      await authService.sendPasswordResetEmail(cleanEmail);
       return { success: true };
     } catch (err: any) {
       console.warn('Password reset notice:', err);
@@ -240,17 +129,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    if (auth) {
-      try {
-        await signOut(auth);
-      } catch (e) {
-        console.warn('SignOut notice', e);
-      }
+    try {
+      await authService.signOut();
+    } catch (e) {
+      console.warn('SignOut notice', e);
     }
     setUser(null);
-    setLocalAdmin(false);
-    setRole(null);
-    setAssignedClientId(null);
     try {
       localStorage.removeItem(LOCAL_ADMIN_KEY);
       localStorage.removeItem(LOCAL_ROLE_KEY);
@@ -261,17 +145,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   };
 
-  const isAdmin = Boolean(user || localAdmin);
-  const isDeveloper = role === 'developer';
+  const isAdmin = Boolean(user);
 
   return (
     <AuthContext.Provider
       value={{
         user,
         isAdmin,
-        role,
-        isDeveloper,
-        assignedClientId,
         loading,
         login,
         logout,

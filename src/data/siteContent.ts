@@ -32,63 +32,8 @@ import {
   FAQ_ITEMS as DEFAULT_FAQ_ITEMS
 } from './makeupData';
 import { PORTFOLIO_CATEGORIES as DEFAULT_PORTFOLIO_CATEGORIES } from './portfolioData';
-
-export interface SiteBrand {
-  name: string;
-  founder: string;
-  tagline: string;
-  subtitle: string;
-  servicesList: string;
-  location: string;
-  primaryServiceArea: string;
-  phone: string;
-  phoneDisplay: string;
-  phoneHref: string;
-  instagram: string;
-  instagramProfileUrl: string;
-  instagramDmUrl: string;
-  whatsappUrl: string;
-  googleMapsUrl?: string;
-  logoUrl: string;
-  heroPhotoUrl: string;
-  artistPhotoUrl: string;
-  homeServiceNotice: string;
-  aboutStory?: {
-    heading: string;
-    subheading: string;
-    quote: string;
-    paragraph1: string;
-    paragraph2: string;
-    yearsExperience: string;
-    happyClients: string;
-  };
-  philosophy?: {
-    badge: string;
-    quote: string;
-    description: string;
-  };
-}
-
-export interface SectionVisibilityConfig {
-  announcementBar: boolean;
-  hero: boolean;
-  philosophy: boolean;
-  services: boolean;
-  portfolio: boolean;
-  beforeAfter: boolean;
-  testimonials: boolean;
-  videos: boolean;
-  dateAvailabilityCalendar: boolean;
-  whyChooseUs: boolean;
-  aboutStory: boolean;
-  pricing: boolean;
-  bridalPackages: boolean;
-  bookingForm: boolean;
-  faqs: boolean;
-  finalCta: boolean;
-  quickContactBar: boolean;
-  offerPopup?: boolean;
-}
+export type { SiteBrand, SectionVisibilityConfig, SiteContent } from '../domain/content/types';
+import type { SiteBrand, SectionVisibilityConfig, SiteContent } from '../domain/content/types';
 
 export const DEFAULT_SECTIONS_VISIBILITY: SectionVisibilityConfig = {
   announcementBar: true,
@@ -231,31 +176,6 @@ export const DEFAULT_OFFER_POPUP: OfferPopupConfig = {
   showOncePerSession: true,
 };
 
-export interface SiteContent {
-  brand: SiteBrand;
-  sectionsVisibility: SectionVisibilityConfig;
-  announcementBar: AnnouncementBarConfig;
-  services: ServiceItem[];
-  bridalPackages: BridalPackage[];
-  portfolioCategories: PortfolioCategory[];
-  curatedPortfolio: PortfolioItem[];
-  beforeAfterGallery?: BeforeAfterItem[];
-  testimonials: TestimonialItem[];
-  videos: VideoShowcaseItem[];
-  calendarAvailability?: DateAvailabilityItem[];
-  benefits: WhyKhushiBenefit[];
-  faqs: FAQItem[];
-  pendingReviews?: ReviewSubmissionItem[];
-  seo: SEOConfig;
-  analytics: AnalyticsConfig;
-  offerPopup?: OfferPopupConfig;
-
-  // Master Modular SaaS Platform Extensions
-  archetype?: BusinessArchetype;
-  enabledModules?: Partial<Record<ModuleId, boolean>>;
-  businessHours?: BusinessHoursConfig;
-  staff?: StaffMember[];
-}
 
 export const DEFAULT_SITE_CONTENT: SiteContent = {
   brand: {

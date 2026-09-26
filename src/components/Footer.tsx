@@ -197,11 +197,19 @@ export const Footer: React.FC<FooterProps> = ({
 
         {/* Copyright & Hand-drawn Flourish */}
         <div className="pt-6 flex flex-col sm:flex-row items-center justify-between text-xs text-[#dfc3c9]/80 font-['Plus_Jakarta_Sans'] gap-3 text-center sm:text-left">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <SketchStar className="w-3 h-3 text-[#fed488]" />
             <span>
               &copy; {currentYear} {brand.name}. All rights reserved.
             </span>
+            <span className="text-white/20">|</span>
+            <a
+              href="#platform"
+              className="text-[#fed488]/80 hover:text-[#fed488] transition-colors underline decoration-[#fed488]/30 hover:decoration-[#fed488]"
+              title="Atelier Platform Engine"
+            >
+              Atelier Platform
+            </a>
           </div>
 
           <div className="flex items-center gap-1.5 font-['Caveat'] text-sm text-[#fed488]">

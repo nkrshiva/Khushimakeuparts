@@ -1,7 +1,7 @@
 import React from 'react';
 import { BusinessHoursConfig, DaySchedule, DayOfWeek } from '../../types';
 import { Clock, Calendar, Check, Sliders, Info, RotateCcw } from 'lucide-react';
-import { SlideToggle } from '../AdminPanel';
+import { SlideToggle } from '../ui/SlideToggle';
 import { DEFAULT_BUSINESS_HOURS } from '../../data/archetypePresets';
 
 interface BusinessHoursTabProps {

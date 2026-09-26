@@ -183,3 +183,82 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* ─── UNIVERSAL LOGIN CTA CONCENTRIC RINGS & SPARKLES ───────────────────── */
+@keyframes ring-pulse-1 {
+  0%, 100% {
+    transform: scale(0.98);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.16);
+    opacity: 0.25;
+  }
+}
+
+@keyframes ring-pulse-2 {
+  0%, 100% {
+    transform: scale(1.05);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.32);
+    opacity: 0.15;
+  }
+}
+
+@keyframes ring-pulse-3 {
+  0%, 100% {
+    transform: scale(1.12);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.50);
+    opacity: 0.05;
+  }
+}
+
+@keyframes sparkle-twinkle {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25) rotate(180deg);
+  }
+}
+
+.animate-ring-1 {
+  animation: ring-pulse-1 3.2s ease-in-out infinite;
+}
+
+.animate-ring-2 {
+  animation: ring-pulse-2 4.2s ease-in-out infinite 0.6s;
+}
+
+.animate-ring-3 {
+  animation: ring-pulse-3 5.2s ease-in-out infinite 1.2s;
+}
+
+.animate-sparkle-1 {
+  animation: sparkle-twinkle 2.8s ease-in-out infinite;
+}
+
+.animate-sparkle-2 {
+  animation: sparkle-twinkle 3.6s ease-in-out infinite 1.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ring-1,
+  .animate-ring-2,
+  .animate-ring-3,
+  .animate-sparkle-1,
+  .animate-sparkle-2,
+  .animate-silk-1,
+  .animate-silk-2,
+  .animate-bokeh-drift,
+  .animate-ray-shift {
+    animation: none !important;
+  }
+}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StaffMember, DayOfWeek, ServiceItem } from '../../types';
 import { Plus, Trash2, Edit2, Check, User, Scissors, Calendar, Sparkles, Upload, X } from 'lucide-react';
-import { SlideToggle } from '../AdminPanel';
+import { SlideToggle } from '../ui/SlideToggle';
 
 interface StaffManagerTabProps {
   staffList: StaffMember[];

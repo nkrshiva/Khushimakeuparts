@@ -12,24 +12,24 @@
  *    - URL parameter and localStorage tampering are strictly rejected.
  */
 
+import type { ActiveTenantRole } from '../domain/tenant/types';
+
 export interface AdminAccountConfig {
   email: string;
-  role: 'developer' | 'client';
+  role: ActiveTenantRole;
   label: string;
   clientId?: string;
 }
 
-// Platform bootstrap developer emails (default + environment variable)
+export const MASTER_ADMIN_EMAIL = 'naveen.kr.shiva@gmail.com';
+
+// Authoritative Master Developer identity (Naveen.kr.shiva@gmail.com only)
 export const PLATFORM_BOOTSTRAP_DEVELOPER_EMAILS: string[] = [
-  'admin@khushimakeup.com',
-  ...((typeof import.meta !== 'undefined' && import.meta.env?.VITE_PLATFORM_DEVELOPER_EMAILS) || '')
-    .split(',')
-    .map((e: string) => e.trim().toLowerCase())
-    .filter(Boolean),
+  MASTER_ADMIN_EMAIL,
 ];
 
 export const isBootstrapDeveloperEmail = (email?: string | null): boolean => {
   if (!email) return false;
   const cleanEmail = email.trim().toLowerCase();
-  return PLATFORM_BOOTSTRAP_DEVELOPER_EMAILS.includes(cleanEmail);
+  return cleanEmail === MASTER_ADMIN_EMAIL;
 };

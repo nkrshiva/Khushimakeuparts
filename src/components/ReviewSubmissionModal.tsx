@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { X, Star, Sparkles, Upload, CheckCircle2, AlertCircle, Camera, Heart } from 'lucide-react';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { storage } from '../firebase';
+import { mediaService } from '../services/media/MediaService';
 import { useSiteContent } from '../context/ContentContext';
 import { ReviewSubmissionItem } from '../types';
 
@@ -28,37 +27,30 @@ export const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({ is
 
   if (!isOpen) return null;
 
-  // Handle Photo File Upload to Firebase Storage
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Photo File Upload via MediaService
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!storage) {
+    if (!mediaService.isAvailable()) {
       setError('Storage is unavailable. You may paste an image URL instead.');
       return;
     }
 
     setIsUploading(true);
     setError(null);
-    const storageRef = ref(storage, `bride_reviews/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
-    const uploadTask = uploadBytesResumable(storageRef, file);
+    setUploadProgress(0);
 
-    uploadTask.on(
-      'state_changed',
-      (snapshot) => {
-        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+    try {
+      const downloadUrl = await mediaService.uploadReviewPhoto(file, (progress) => {
         setUploadProgress(progress);
-      },
-      (err) => {
-        setIsUploading(false);
-        setError('Failed to upload photo. You can paste an image URL directly.');
-      },
-      async () => {
-        const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-        setPhotoUrl(downloadUrl);
-        setIsUploading(false);
-      }
-    );
+      });
+      setPhotoUrl(downloadUrl);
+    } catch {
+      setError('Failed to upload photo. You can paste an image URL directly.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

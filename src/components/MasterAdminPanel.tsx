@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useSiteContent } from '../context/ContentContext';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
+import { authorizationService } from '../services/auth/AuthorizationService';
 import { ClientTenantSummary, BusinessArchetype, TenantLifecycleStatus } from '../types';
 import { ARCHETYPE_PRESETS } from '../data/archetypePresets';
 
@@ -46,7 +48,8 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
     isFirebaseConnected,
   } = useSiteContent();
 
-  const { isDeveloper, user, logout } = useAuth();
+  const { user, logout } = useAuth();
+  const { role, isDeveloper } = useTenant();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArchetypeFilter, setSelectedArchetypeFilter] = useState<string>('all');
@@ -82,7 +85,8 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   // Status Notification
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  if (!isOpen) return null;
+  // Independent Authorization Guard: refuse privileged rendering unless role === 'developer' and matching master admin identity
+  if (!isOpen || !authorizationService.canAccessMasterAdmin(role, user?.email)) return null;
 
   const showNotice = (type: 'success' | 'error', text: string) => {
     setNotice({ type, text });

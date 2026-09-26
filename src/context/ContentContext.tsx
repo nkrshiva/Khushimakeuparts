@@ -1,18 +1,11 @@
 import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
-import {
-  doc,
-  setDoc,
-  onSnapshot,
-  deleteDoc,
-  collection,
-  runTransaction,
-  query,
-  limit,
-  getDocs,
-  writeBatch
-} from 'firebase/firestore';
-import { db } from '../firebase';
-import { useAuth } from './AuthContext';
+import { useTenant } from './TenantContext';
+import { authorizationService } from '../services/auth/AuthorizationService';
+import { bookingService } from '../services/booking/BookingService';
+import { enquiryService } from '../services/enquiry/EnquiryService';
+import { reviewService } from '../services/review';
+import { contentService, mergeWithDefaults, createTailoredSiteContent } from '../services/content';
+import { tenantService } from '../services/tenant';
 import { SiteContent, DEFAULT_SITE_CONTENT } from '../data/siteContent';
 import {
   EnquiryItem,
@@ -24,12 +17,11 @@ import {
   ModuleId,
   BusinessHoursConfig,
   StaffMember,
-  PublicStaffProfile,
   AppointmentItem,
   AppointmentStatus,
   BusySlotItem,
-  SlotLockItem,
-  DayOfWeek
+  DayOfWeek,
+  DEFAULT_MAIN_CLIENT,
 } from '../types';
 import { ARCHETYPE_PRESETS, DEFAULT_BUSINESS_HOURS } from '../data/archetypePresets';
 
@@ -102,20 +94,6 @@ interface ContentContextType {
   updateBusinessHours: (hours: BusinessHoursConfig) => Promise<boolean>;
 }
 
-const DEFAULT_MAIN_CLIENT: ClientTenantSummary = {
-  id: 'khushi',
-  name: 'Khushi Makeup Arts',
-  founder: 'Khushi Kumari',
-  city: 'Siwan, Bihar',
-  phone: '+91 91621 43273',
-  instagram: '@khushimakeuparts',
-  archetype: 'solo_mua',
-  status: 'active',
-  active: true,
-  createdAt: '2026-01-01T00:00:00.000Z',
-  updatedAt: new Date().toISOString(),
-};
-
 const PLATFORM_REGISTRY_KEY = 'platform_clients_registry';
 const PLATFORM_ACTIVE_CLIENT_KEY = 'platform_active_client_id';
 
@@ -183,177 +161,12 @@ const detectInitialClientId = (): string => {
 
 const ContentContext = createContext<ContentContextType | undefined>(undefined);
 
-const mergeWithDefaults = (incoming?: any): SiteContent => {
-  if (!incoming || typeof incoming !== 'object') {
-    return DEFAULT_SITE_CONTENT;
-  }
-  return {
-    ...DEFAULT_SITE_CONTENT,
-    ...incoming,
-    brand: {
-      ...DEFAULT_SITE_CONTENT.brand,
-      ...(incoming.brand || {}),
-      aboutStory: {
-        ...DEFAULT_SITE_CONTENT.brand.aboutStory,
-        ...(incoming.brand?.aboutStory || {}),
-      },
-      philosophy: {
-        ...DEFAULT_SITE_CONTENT.brand.philosophy,
-        ...(incoming.brand?.philosophy || {}),
-      },
-    },
-    sectionsVisibility: {
-      ...DEFAULT_SITE_CONTENT.sectionsVisibility,
-      ...(incoming.sectionsVisibility || {}),
-    },
-    announcementBar: {
-      ...DEFAULT_SITE_CONTENT.announcementBar,
-      ...(incoming.announcementBar || {}),
-    },
-    seo: {
-      ...DEFAULT_SITE_CONTENT.seo,
-      ...(incoming.seo || {}),
-    },
-    analytics: {
-      ...DEFAULT_SITE_CONTENT.analytics,
-      ...(incoming.analytics || {}),
-    },
-    services: Array.isArray(incoming.services) && incoming.services.length > 0
-      ? incoming.services
-      : DEFAULT_SITE_CONTENT.services,
-    bridalPackages: Array.isArray(incoming.bridalPackages) && incoming.bridalPackages.length > 0
-      ? incoming.bridalPackages
-      : DEFAULT_SITE_CONTENT.bridalPackages,
-    portfolioCategories: Array.isArray(incoming.portfolioCategories) && incoming.portfolioCategories.length > 0
-      ? incoming.portfolioCategories
-      : DEFAULT_SITE_CONTENT.portfolioCategories,
-    curatedPortfolio: Array.isArray(incoming.curatedPortfolio) && incoming.curatedPortfolio.length > 0
-      ? incoming.curatedPortfolio
-      : DEFAULT_SITE_CONTENT.curatedPortfolio,
-    testimonials: Array.isArray(incoming.testimonials) && incoming.testimonials.length > 0
-      ? incoming.testimonials.map((t: any, idx: number) => {
-          const fallbackMatch = DEFAULT_SITE_CONTENT.testimonials[idx] || DEFAULT_SITE_CONTENT.testimonials[0];
-          return {
-            ...fallbackMatch,
-            ...t,
-            videoUrl: t.videoUrl?.trim() || fallbackMatch?.videoUrl || 'https://www.youtube.com/shorts/fkqzlnFsuA4',
-          };
-        })
-      : DEFAULT_SITE_CONTENT.testimonials,
-    videos: Array.isArray(incoming.videos) && incoming.videos.length > 0
-      ? incoming.videos
-      : DEFAULT_SITE_CONTENT.videos,
-    benefits: Array.isArray(incoming.benefits) && incoming.benefits.length > 0
-      ? incoming.benefits
-      : DEFAULT_SITE_CONTENT.benefits,
-    faqs: Array.isArray(incoming.faqs) && incoming.faqs.length > 0
-      ? incoming.faqs
-      : DEFAULT_SITE_CONTENT.faqs,
-    beforeAfterGallery: Array.isArray(incoming.beforeAfterGallery) && incoming.beforeAfterGallery.length > 0
-      ? incoming.beforeAfterGallery
-      : DEFAULT_SITE_CONTENT.beforeAfterGallery,
-    calendarAvailability: Array.isArray(incoming.calendarAvailability) && incoming.calendarAvailability.length > 0
-      ? incoming.calendarAvailability
-      : DEFAULT_SITE_CONTENT.calendarAvailability,
-    pendingReviews: Array.isArray(incoming.pendingReviews) ? incoming.pendingReviews : [],
+export { mergeWithDefaults, createTailoredSiteContent };
 
-    // Modular SaaS additions
-    archetype: incoming.archetype || DEFAULT_SITE_CONTENT.archetype || 'solo_mua',
-    enabledModules: {
-      ...(ARCHETYPE_PRESETS[incoming.archetype as BusinessArchetype || 'solo_mua']?.defaultModules || DEFAULT_SITE_CONTENT.enabledModules),
-      ...(incoming.enabledModules || {}),
-    },
-    businessHours: incoming.businessHours || DEFAULT_BUSINESS_HOURS,
-    staff: Array.isArray(incoming.staff) ? incoming.staff : (DEFAULT_SITE_CONTENT.staff || []),
-  };
-};
 
-export const createTailoredSiteContent = (meta: ClientTenantSummary, archetypeOverride?: BusinessArchetype): SiteContent => {
-  const base: SiteContent = JSON.parse(JSON.stringify(DEFAULT_SITE_CONTENT));
-  const archetype = archetypeOverride || meta.archetype || 'solo_mua';
-  const preset = ARCHETYPE_PRESETS[archetype] || ARCHETYPE_PRESETS.solo_mua;
-  const cleanPhone = (meta.phone || '').replace(/[^0-9]/g, '');
-  const fullPhone = cleanPhone.startsWith('91') && cleanPhone.length > 10 ? cleanPhone : `91${cleanPhone}`;
-
-  base.archetype = archetype;
-  base.enabledModules = { ...preset.defaultModules };
-  base.businessHours = { ...preset.defaultBusinessHours };
-
-  // Seed sample services if archetype provides them
-  if (preset.sampleServices && preset.sampleServices.length > 0) {
-    base.services = preset.sampleServices.map((s, idx) => ({
-      ...DEFAULT_SITE_CONTENT.services[0],
-      ...s,
-      id: s.id || `service-${archetype}-${idx + 1}`,
-    })) as any;
-  }
-
-  // Seed sample staff if archetype provides them
-  if (preset.sampleStaff && preset.sampleStaff.length > 0) {
-    base.staff = preset.sampleStaff.map((st, idx) => ({
-      id: st.id || `staff-${idx + 1}`,
-      name: st.name || 'Team Member',
-      role: st.role || 'Stylist',
-      workingDays: st.workingDays || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
-      assignedServiceIds: st.assignedServiceIds || [],
-      active: true,
-    }));
-  }
-
-  base.brand = {
-    ...base.brand,
-    name: meta.name,
-    founder: meta.founder,
-    location: meta.city,
-    phone: meta.phone,
-    phoneDisplay: meta.phone,
-    phoneHref: `tel:+${fullPhone}`,
-    whatsappUrl: `https://wa.me/${fullPhone}?text=${encodeURIComponent(`Hello ${meta.founder}! ✨ I would like to inquire about ${preset.terminology.bookingNoun} at ${meta.name}.`)}`,
-    instagram: meta.instagram,
-    instagramDmUrl: `https://ig.me/m/${meta.instagram.replace('@', '')}`,
-    tagline: `${preset.tagline} in ${meta.city}`,
-    subtitle: `Signature artistry, curated care, and verified ${preset.terminology.serviceAreaNoun} in ${meta.city}.`,
-    primaryServiceArea: meta.city,
-    aboutStory: {
-      ...base.brand.aboutStory,
-      heading: `Meet ${meta.founder}`,
-      subheading: `${preset.badge} and founder of ${meta.name} in ${meta.city}.`,
-    },
-  };
-
-  base.seo = {
-    ...base.seo,
-    siteTitle: `${meta.name} | ${preset.name} in ${meta.city}`,
-    metaDescription: `Official website for ${meta.name} in ${meta.city}. ${preset.tagline}.`,
-  };
-
-  return base;
-};
-
-// Safe Firestore write helper with timeout protection so offline or slow connections never block the UI
-const safeFirestoreWrite = async (
-  writeFn: () => Promise<any>,
-  timeoutMs = 2500
-): Promise<boolean> => {
-  if (!db) return false;
-  try {
-    const timeoutPromise = new Promise<{ isTimeout: true }>((resolve) =>
-      setTimeout(() => resolve({ isTimeout: true }), timeoutMs)
-    );
-    const result = await Promise.race([writeFn(), timeoutPromise]);
-    if (result && typeof result === 'object' && 'isTimeout' in result) {
-      console.info(`Firestore operation backgrounded after ${timeoutMs}ms timeout. Local state preserved.`);
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    console.warn('Firestore write warning:', err?.message || err);
-    return false;
-  }
-};
 
 export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { role, assignedClientId } = useAuth();
+  const { role, assignedClientId } = useTenant();
   const [activeClientId, setActiveClientIdState] = useState<string>(detectInitialClientId);
 
   // Clients registry list
@@ -481,32 +294,20 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [role, assignedClientId, activeClientId]);
 
-  // 1. Sync Clients Registry from Firestore
+  // 1. Sync Clients Registry from TenantService
   useEffect(() => {
-    if (!db) return;
-    try {
-      const regDocRef = doc(db, 'settings', 'clients_registry');
-      const unsubscribe = onSnapshot(
-        regDocRef,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            if (Array.isArray(data?.clients) && data.clients.length > 0) {
-              setClientsList(data.clients);
-              try {
-                localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(data.clients));
-              } catch {}
-            }
-          }
-        },
-        (err) => {
-          console.warn('Clients registry sync notice:', err.message);
-        }
-      );
-      return () => unsubscribe();
-    } catch (err) {
-      console.warn('Could not attach clients registry listener:', err);
-    }
+    const unsubscribe = tenantService.subscribeClientsRegistry(
+      (clients) => {
+        setClientsList(clients);
+        try {
+          localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(clients));
+        } catch {}
+      },
+      (err) => {
+        console.warn('Clients registry sync notice:', err?.message || err);
+      }
+    );
+    return () => unsubscribe();
   }, []);
 
   // Sync active client ID dynamically when URL query param or hash changes (for public and developer)
@@ -550,42 +351,22 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     } catch {}
 
-    if (!db) {
-      setIsFirebaseConnected(false);
-      return;
-    }
+    if (!activeClientId) return;
 
-    let unsubscribe: (() => void) | undefined;
-
-    try {
-      // Primary document for this tenant: clients/{activeClientId}
-      const tenantDocRef = doc(db, 'clients', activeClientId);
-
-      unsubscribe = onSnapshot(
-        tenantDocRef,
-        (snapshot) => {
-          if (snapshot.exists()) {
-            const remoteData = snapshot.data();
-            const rawContent = remoteData?.content || remoteData;
-            const merged = mergeWithDefaults(rawContent);
-            setContent(merged);
-            try {
-              localStorage.setItem(getLocalStorageKey(activeClientId), JSON.stringify(merged));
-            } catch {}
-            setIsFirebaseConnected(true);
-          } else {
-            setIsFirebaseConnected(true);
-          }
-        },
-        (err) => {
-          console.warn(`Firestore sync notice for client '${activeClientId}':`, err.message);
-          setIsFirebaseConnected(false);
-        }
-      );
-    } catch (err: any) {
-      console.warn('Could not attach Firestore snapshot:', err?.message || err);
-      setIsFirebaseConnected(false);
-    }
+    const unsubscribe = contentService.subscribeContent(
+      activeClientId,
+      (remoteContent) => {
+        setContent(remoteContent);
+        try {
+          localStorage.setItem(getLocalStorageKey(activeClientId), JSON.stringify(remoteContent));
+        } catch {}
+        setIsFirebaseConnected(true);
+      },
+      (err) => {
+        console.warn(`Firestore sync notice for client '${activeClientId}':`, err?.message || err);
+        setIsFirebaseConnected(false);
+      }
+    );
 
     return () => {
       if (unsubscribe) unsubscribe();
@@ -603,31 +384,21 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     } catch {}
 
-    if (!db || !activeClientId) return;
+    if (!activeClientId) return;
 
-    let unsubscribe: (() => void) | undefined;
-    try {
-      const aptColRef = collection(db, 'clients', activeClientId, 'appointments');
-      unsubscribe = onSnapshot(
-        aptColRef,
-        (snapshot) => {
-          const list: AppointmentItem[] = [];
-          snapshot.forEach((d) => {
-            list.push({ ...d.data(), id: d.id } as AppointmentItem);
-          });
-          list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-          setAppointments(list);
-          try {
-            localStorage.setItem(getTenantApptsKey(activeClientId), JSON.stringify(list));
-          } catch {}
-        },
-        () => {
-          // Public visitors cannot read appointments subcollection (expected denial)
-        }
-      );
-    } catch (err) {
-      console.warn('Could not attach appointments subcollection listener:', err);
-    }
+    const unsubscribe = bookingService.subscribeAppointments(
+      activeClientId,
+      (list) => {
+        setAppointments(list);
+        try {
+          localStorage.setItem(getTenantApptsKey(activeClientId), JSON.stringify(list));
+        } catch {}
+      },
+      (err) => {
+        // Public visitors cannot read appointments subcollection (expected denial)
+        console.warn('Could not attach appointments subcollection listener:', err);
+      }
+    );
 
     return () => {
       if (unsubscribe) unsubscribe();
@@ -645,31 +416,21 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     } catch {}
 
-    if (!db || !activeClientId) return;
+    if (!activeClientId) return;
 
-    let unsubscribe: (() => void) | undefined;
-    try {
-      const enqColRef = collection(db, 'clients', activeClientId, 'enquiries');
-      unsubscribe = onSnapshot(
-        enqColRef,
-        (snapshot) => {
-          const list: EnquiryItem[] = [];
-          snapshot.forEach((d) => {
-            list.push({ ...d.data(), id: d.id } as EnquiryItem);
-          });
-          list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-          setEnquiries(list);
-          try {
-            localStorage.setItem(getTenantEnqsKey(activeClientId), JSON.stringify(list));
-          } catch {}
-        },
-        () => {
-          // Public visitors cannot read enquiries subcollection (expected denial)
-        }
-      );
-    } catch (err) {
-      console.warn('Could not attach enquiries subcollection listener:', err);
-    }
+    const unsubscribe = enquiryService.subscribeEnquiries(
+      activeClientId,
+      (list) => {
+        setEnquiries(list);
+        try {
+          localStorage.setItem(getTenantEnqsKey(activeClientId), JSON.stringify(list));
+        } catch {}
+      },
+      (err) => {
+        // Public visitors cannot read enquiries subcollection (expected denial)
+        console.warn('Could not attach enquiries subcollection listener:', err);
+      }
+    );
 
     return () => {
       if (unsubscribe) unsubscribe();
@@ -678,27 +439,17 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // 5. Real-time sync for active client's anonymized busy slots (Public booking collision detection)
   useEffect(() => {
-    if (!db || !activeClientId) return;
+    if (!activeClientId) return;
 
-    let unsubscribe: (() => void) | undefined;
-    try {
-      const busyColRef = collection(db, 'clients', activeClientId, 'busy_slots');
-      unsubscribe = onSnapshot(
-        busyColRef,
-        (snapshot) => {
-          const list: BusySlotItem[] = [];
-          snapshot.forEach((d) => {
-            list.push({ ...d.data(), id: d.id } as BusySlotItem);
-          });
-          setBusySlots(list);
-        },
-        (err) => {
-          console.warn('Busy slots sync notice:', err.message);
-        }
-      );
-    } catch (err) {
-      console.warn('Could not attach busy slots listener:', err);
-    }
+    const unsubscribe = bookingService.subscribeBusySlots(
+      activeClientId,
+      (list) => {
+        setBusySlots(list);
+      },
+      (err) => {
+        console.warn('Busy slots sync notice:', err.message);
+      }
+    );
 
     return () => {
       if (unsubscribe) unsubscribe();
@@ -739,46 +490,14 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('LocalStorage save notice:', lsErr);
       }
 
-      // Sanitize staff list in public document to ensure zero private staff PII (phone, notes) is exposed
-      const sanitizedStaff: PublicStaffProfile[] = (newContent.staff || []).map((st) => ({
-        id: st.id,
-        name: st.name,
-        role: st.role,
-        avatarUrl: st.avatarUrl,
-        assignedServiceIds: st.assignedServiceIds || [],
-        workingDays: st.workingDays || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
-        active: st.active !== false,
-      }));
-
-      const publicContentToSave: SiteContent = {
-        ...newContent,
-        staff: sanitizedStaff,
-      };
-
-      // 2. Persist strictly to /clients/{targetId} with ZERO dual-writes to /settings/siteContent
-      if (db) {
-        const synced = await safeFirestoreWrite(async () => {
-          const clientDocRef = doc(db, 'clients', targetId);
-          await setDoc(clientDocRef, {
-            id: targetId,
-            name: newContent.brand.name,
-            founder: newContent.brand.founder,
-            city: newContent.brand.location,
-            phone: newContent.brand.phone,
-            instagram: newContent.brand.instagram,
-            active: true,
-            status: 'active',
-            updatedAt: new Date().toISOString(),
-            content: publicContentToSave,
-          }, { merge: true });
-        }, 2200);
-
-        if (synced) {
-          setIsFirebaseConnected(true);
-        }
+      // 2. Delegate persistence to ContentService (handles authorization, sanitization, and repository persistence)
+      const result = await contentService.saveContent(role, assignedClientId, targetId, newContent);
+      if (result.success) {
+        setIsFirebaseConnected(true);
+        return { success: true };
+      } else {
+        return { success: false, error: result.error };
       }
-
-      return { success: true };
     } catch (e: any) {
       return { success: false, error: e?.message || 'Failed to save content' };
     }
@@ -794,68 +513,22 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     customDomain?: string;
     archetype?: BusinessArchetype;
   }): Promise<{ success: boolean; id?: string; error?: string }> => {
-    try {
-      const cleanName = tenantData.name.trim();
-      if (!cleanName) return { success: false, error: 'Salon / Brand name is required' };
-
-      const slug = cleanName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
-      const id = slug || `client-${Date.now()}`;
-
-      if (clientsList.some((c) => c.id === id)) {
-        return { success: false, error: `A client website with ID "${id}" already exists.` };
-      }
-
-      const newSummary: ClientTenantSummary = {
-        id,
-        name: cleanName,
-        founder: tenantData.founder.trim() || 'Lead Artist',
-        city: tenantData.city.trim() || 'City',
-        phone: tenantData.phone.trim() || '+91 98765 43210',
-        instagram: tenantData.instagram.trim() || '@salon',
-        customDomain: tenantData.customDomain?.trim() || undefined,
-        archetype: tenantData.archetype || 'solo_mua',
-        status: 'active',
-        active: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      const tailoredContent = createTailoredSiteContent(newSummary, tenantData.archetype || 'solo_mua');
-
-      const updatedList = [...clientsList, newSummary];
+    const result = await tenantService.createTenantSite(role, tenantData, clientsList);
+    if (result.success && result.id && result.summary) {
+      const updatedList = [...clientsList, result.summary];
       setClientsList(updatedList);
       try {
         localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(updatedList));
-        localStorage.setItem(getLocalStorageKey(id), JSON.stringify(tailoredContent));
       } catch {}
-
-      if (db) {
-        safeFirestoreWrite(async () => {
-          // Save tenant document
-          await setDoc(doc(db, 'clients', id), {
-            ...newSummary,
-            content: tailoredContent,
-          });
-          // Update registry
-          await setDoc(doc(db, 'settings', 'clients_registry'), {
-            clients: updatedList,
-            updatedAt: new Date().toISOString(),
-          }, { merge: true });
-        }, 3000);
-      }
-
-      return { success: true, id };
-    } catch (err: any) {
-      return { success: false, error: err?.message || 'Failed to create client website' };
+      return { success: true, id: result.id };
     }
+    return { success: false, error: result.error };
   };
 
   // Set tenant lifecycle status: 'active' | 'suspended' | 'archived'
   const setTenantLifecycleStatus = async (id: string, status: TenantLifecycleStatus): Promise<boolean> => {
-    try {
+    const result = await tenantService.setTenantLifecycleStatus(role, id, status, clientsList);
+    if (result.success) {
       const updatedList = clientsList.map((c) =>
         c.id === id ? { ...c, status, active: status === 'active', updatedAt: new Date().toISOString() } : c
       );
@@ -863,29 +536,26 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(updatedList));
       } catch {}
-
-      if (db) {
-        safeFirestoreWrite(async () => {
-          await setDoc(doc(db, 'clients', id), {
-            status,
-            active: status === 'active',
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-          await setDoc(doc(db, 'settings', 'clients_registry'), {
-            clients: updatedList,
-            updatedAt: new Date().toISOString(),
-          }, { merge: true });
-        }, 2000);
-      }
       return true;
-    } catch {
-      return false;
     }
+    return false;
   };
 
   // Toggle client active/suspended status (backward compatibility alias)
   const toggleClientStatus = async (id: string, active: boolean): Promise<boolean> => {
-    return setTenantLifecycleStatus(id, active ? 'active' : 'suspended');
+    const result = await tenantService.toggleClientStatus(role, id, active, clientsList);
+    if (result.success) {
+      const nextStatus: TenantLifecycleStatus = active ? 'active' : 'suspended';
+      const updatedList: ClientTenantSummary[] = clientsList.map((c) =>
+        c.id === id ? { ...c, status: nextStatus, active, updatedAt: new Date().toISOString() } : c
+      );
+      setClientsList(updatedList);
+      try {
+        localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(updatedList));
+      } catch {}
+      return true;
+    }
+    return false;
   };
 
   // Scalable paginated chunked subcollection purge and permanent tenant deletion
@@ -893,41 +563,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     id: string,
     onProgress?: (msg: string) => void
   ): Promise<{ success: boolean; error?: string }> => {
-    try {
-      onProgress?.('Preparing subcollection purge...');
-      const subcollections = [
-        'slot_locks',
-        'busy_slots',
-        'appointments',
-        'enquiries',
-        'staff_private',
-        'staff',
-        'pending_reviews'
-      ];
-
-      if (db) {
-        for (const sub of subcollections) {
-          onProgress?.(`Purging ${sub}...`);
-          let totalDeletedInSub = 0;
-          while (true) {
-            const subColRef = collection(db, 'clients', id, sub);
-            const q = query(subColRef, limit(300));
-            const snap = await getDocs(q);
-            if (snap.empty) break;
-
-            const batch = writeBatch(db);
-            snap.docs.forEach((docItem) => batch.delete(docItem.ref));
-            await batch.commit();
-            totalDeletedInSub += snap.size;
-            onProgress?.(`Purged ${totalDeletedInSub} docs in ${sub}...`);
-          }
-        }
-
-        onProgress?.('Deleting parent tenant document...');
-        await deleteDoc(doc(db, 'clients', id));
-      }
-
-      // Update registry
+    const result = await tenantService.permanentDeleteTenant(role, id, clientsList, onProgress);
+    if (result.success) {
       const updatedList = clientsList.filter((c) => c.id !== id);
       setClientsList(updatedList);
       try {
@@ -937,26 +574,13 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.removeItem(getTenantEnqsKey(id));
       } catch {}
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          await setDoc(doc(db, 'settings', 'clients_registry'), {
-            clients: updatedList,
-            updatedAt: new Date().toISOString(),
-          }, { merge: true });
-        }, 2500);
-      }
-
       if (activeClientId === id) {
         const fallbackId = updatedList[0]?.id || 'khushi';
         setActiveClientId(fallbackId);
       }
-
-      onProgress?.('Tenant deletion completed successfully.');
       return { success: true };
-    } catch (err: any) {
-      console.error('Failed to permanently delete tenant:', err);
-      return { success: false, error: err?.message || 'Failed to permanently delete tenant' };
     }
+    return { success: false, error: result.error };
   };
 
   // Delete a client website (delegates to permanentDeleteTenant)
@@ -980,152 +604,22 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       testimonials?: boolean;
     }
   ): Promise<{ success: boolean; updatedCount: number; error?: string }> => {
-    const defaultModules = {
-      services: true,
-      preserveClientPricing: true,
-      bridalPackages: true,
-      portfolio: true,
-      videos: true,
-      faqs: true,
-      sectionsVisibility: true,
-      announcementBar: true,
-      benefits: true,
-      testimonials: true,
-      ...modulesToSync,
-    };
-
-    const clientTenants = clientsList.filter((c) => c.id !== 'khushi');
-    if (clientTenants.length === 0) {
-      return { success: true, updatedCount: 0 };
-    }
-
-    try {
-      let updatedCount = 0;
-
-      for (const client of clientTenants) {
-        // 1. Get client's current content
-        let currentClientContent: SiteContent;
-        try {
-          const cached = localStorage.getItem(getLocalStorageKey(client.id));
-          if (cached) {
-            currentClientContent = mergeWithDefaults(JSON.parse(cached));
-          } else {
-            currentClientContent = createTailoredSiteContent(client);
-          }
-        } catch {
-          currentClientContent = createTailoredSiteContent(client);
-        }
-
-        // 2. Clone client content and carefully preserve client's unique brand identity
-        const updated: SiteContent = {
-          ...currentClientContent,
-          brand: {
-            ...currentClientContent.brand,
-            name: client.name,
-            founder: client.founder,
-            location: client.city,
-            primaryServiceArea: client.city,
-            phone: client.phone,
-            instagram: client.instagram,
-          },
-          // Synchronize only the selected modules from sourceContent
-          ...(defaultModules.services
-            ? {
-                services: sourceContent.services.map((srcService) => {
-                  // Keep individual client's custom pricing intact if requested
-                  if (defaultModules.preserveClientPricing) {
-                    const existing = currentClientContent.services?.find((s) => s.id === srcService.id);
-                    if (existing && (existing.price || existing.priceNum !== undefined)) {
-                      return {
-                        ...JSON.parse(JSON.stringify(srcService)),
-                        price: existing.price,
-                        priceNum: existing.priceNum,
-                      };
-                    }
-                  }
-                  return JSON.parse(JSON.stringify(srcService));
-                }),
-              }
-            : {}),
-          ...(defaultModules.bridalPackages ? { bridalPackages: JSON.parse(JSON.stringify(sourceContent.bridalPackages)) } : {}),
-          ...(defaultModules.portfolio ? { portfolioCategories: JSON.parse(JSON.stringify(sourceContent.portfolioCategories)) } : {}),
-          ...(defaultModules.videos ? { videos: JSON.parse(JSON.stringify(sourceContent.videos)) } : {}),
-          ...(defaultModules.faqs ? { faqs: JSON.parse(JSON.stringify(sourceContent.faqs)) } : {}),
-          ...(defaultModules.sectionsVisibility ? { sectionsVisibility: JSON.parse(JSON.stringify(sourceContent.sectionsVisibility)) } : {}),
-          ...(defaultModules.announcementBar ? { announcementBar: JSON.parse(JSON.stringify(sourceContent.announcementBar)) } : {}),
-          ...(defaultModules.benefits ? { benefits: JSON.parse(JSON.stringify(sourceContent.benefits)) } : {}),
-          ...(defaultModules.testimonials ? { testimonials: JSON.parse(JSON.stringify(sourceContent.testimonials)) } : {}),
-        };
-
-        // 3. Update localStorage for client
-        try {
-          localStorage.setItem(getLocalStorageKey(client.id), JSON.stringify(updated));
-        } catch (e) {
-          console.warn('LocalStorage error during sync for client:', client.id, e);
-        }
-
-        // 4. Update Firestore for client
-        if (db) {
-          safeFirestoreWrite(async () => {
-            await setDoc(doc(db, 'clients', client.id), {
-              ...client,
-              updatedAt: new Date().toISOString(),
-              content: updated,
-            }, { merge: true });
-          }, 3000);
-        }
-
-        updatedCount++;
-      }
-
-      return { success: true, updatedCount };
-    } catch (err: any) {
-      console.error('Error during global client sync:', err);
-      return { success: false, updatedCount: 0, error: err?.message || 'Sync failed' };
-    }
+    return tenantService.syncContentToAllClients(role, sourceContent, clientsList, modulesToSync);
   };
 
   // Enquiry methods scoped exclusively to active client subcollection
   const addEnquiry = async (enquiryData: Omit<EnquiryItem, 'id' | 'createdAt' | 'status'>): Promise<boolean> => {
     try {
-      const cleanPhone = (enquiryData.phone || '').replace(/[^0-9]/g, '');
-
-      const existingIdx = enquiries.findIndex((item) => {
-        const itemCleanPhone = (item.phone || '').replace(/[^0-9]/g, '');
-        const hasMatchingPhone = cleanPhone && itemCleanPhone && cleanPhone === itemCleanPhone;
-        const hasMatchingIdentity =
-          item.clientName?.trim().toLowerCase() === enquiryData.clientName?.trim().toLowerCase() &&
-          item.ceremonyType === enquiryData.ceremonyType &&
-          item.location === enquiryData.location;
-
-        if (hasMatchingPhone || hasMatchingIdentity) {
-          const existingTime = new Date(item.createdAt).getTime();
-          const diffMinutes = (Date.now() - existingTime) / (1000 * 60);
-          return diffMinutes < 30;
-        }
+      const result = await enquiryService.submitEnquiry(activeClientId, enquiryData, enquiries);
+      if (!result.success || !result.enquiry) {
         return false;
-      });
+      }
 
       let updatedList: EnquiryItem[];
-      let targetId: string;
-      if (existingIdx !== -1) {
-        updatedList = [...enquiries];
-        targetId = updatedList[existingIdx].id;
-        updatedList[existingIdx] = {
-          ...updatedList[existingIdx],
-          ...enquiryData,
-          notes: enquiryData.notes || updatedList[existingIdx].notes,
-          createdAt: new Date().toISOString(),
-        };
+      if (result.isUpdate) {
+        updatedList = enquiries.map((item) => (item.id === result.enquiry!.id ? result.enquiry! : item));
       } else {
-        targetId = `enq_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-        const newEnquiry: EnquiryItem = {
-          ...enquiryData,
-          id: targetId,
-          status: 'new',
-          createdAt: new Date().toISOString(),
-        };
-        updatedList = [newEnquiry, ...enquiries];
+        updatedList = [result.enquiry, ...enquiries];
       }
 
       setEnquiries(updatedList);
@@ -1135,16 +629,6 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('LocalStorage save notice:', err);
       }
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          // Write strictly to isolated subcollection
-          const enqDocRef = doc(db, 'clients', activeClientId, 'enquiries', targetId);
-          const savedItem = updatedList.find((e) => e.id === targetId);
-          if (savedItem) {
-            await setDoc(enqDocRef, savedItem);
-          }
-        }, 2000);
-      }
       return true;
     } catch (e) {
       console.warn('Failed to record inquiry:', e);
@@ -1162,12 +646,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem(getTenantEnqsKey(activeClientId), JSON.stringify(updatedList));
       } catch {}
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          const enqDocRef = doc(db, 'clients', activeClientId, 'enquiries', id);
-          await setDoc(enqDocRef, { status }, { merge: true });
-        }, 2000);
-      }
+      await enquiryService.updateEnquiryStatus(activeClientId, id, status);
       return true;
     } catch (e) {
       console.warn('Failed to update enquiry status:', e);
@@ -1183,11 +662,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem(getTenantEnqsKey(activeClientId), JSON.stringify(updatedList));
       } catch {}
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          await deleteDoc(doc(db, 'clients', activeClientId, 'enquiries', id));
-        }, 2000);
-      }
+      await enquiryService.deleteEnquiry(activeClientId, id);
       return true;
     } catch (e) {
       console.warn('Failed to delete enquiry:', e);
@@ -1197,19 +672,13 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const clearAllEnquiries = async (): Promise<boolean> => {
     try {
-      const currentList = [...enquiries];
+      const enquiryIds = enquiries.map((item) => item.id);
       setEnquiries([]);
       try {
         localStorage.setItem(getTenantEnqsKey(activeClientId), JSON.stringify([]));
       } catch {}
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          for (const item of currentList) {
-            await deleteDoc(doc(db, 'clients', activeClientId, 'enquiries', item.id));
-          }
-        }, 3000);
-      }
+      await enquiryService.clearAllEnquiries(activeClientId, enquiryIds);
       return true;
     } catch (e) {
       console.warn('Failed to clear enquiries:', e);
@@ -1230,25 +699,11 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.warn('LocalStorage save notice:', err);
       }
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          // 1. Write to subcollection (public visitors are permitted via firestore.rules)
-          const reviewDocRef = doc(db, 'clients', activeClientId, 'pending_reviews', review.id);
-          await setDoc(reviewDocRef, review);
-
-          // 2. Also attempt to update the parent document if permitted
-          try {
-            await setDoc(
-              doc(db, 'clients', activeClientId),
-              { pendingReviews: updatedList, 'content.pendingReviews': updatedList },
-              { merge: true }
-            );
-          } catch {
-            // Parent doc write might fail if unauthenticated, subcollection succeeds
-          }
-        }, 3000);
+      const result = await reviewService.submitReview(activeClientId, review);
+      if (!result.success) {
+        console.warn('Review submission warning from reviewService:', result.error);
       }
-      return true;
+      return result.success;
     } catch (e) {
       console.warn('Failed to record pending review:', e);
       return false;
@@ -1334,243 +789,36 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     appointmentId?: string;
     assignedStaff?: { id: string; name: string };
   }> => {
-    try {
-      let startMin = appointment.startMinute;
-      let endMin = appointment.endMinute;
-      const duration = appointment.durationMinutes || 30;
+    const result = await bookingService.createAppointment({
+      appointment,
+      activeClientId,
+      businessHours: content.businessHours,
+      staffList: content.staff,
+      servicesList: content.services,
+      brandFounder: content.brand?.founder,
+      isStaffManagementEnabled: isModuleEnabled('staffManagement'),
+    });
 
-      if (typeof startMin !== 'number') {
-        const [timeStr, ampm] = (appointment.timeSlot || '10:00 AM').split(' ');
-        const [hStr, mStr] = (timeStr || '10:00').split(':');
-        let hour = parseInt(hStr, 10);
-        const minute = parseInt(mStr || '0', 10);
-        if (ampm?.toUpperCase() === 'PM' && hour < 12) hour += 12;
-        if (ampm?.toUpperCase() === 'AM' && hour === 12) hour = 0;
-        startMin = hour * 60 + minute;
-      }
-      if (typeof endMin !== 'number') {
-        endMin = startMin + duration;
-      }
+    if (result.success && result.appointment && result.busySlot) {
+      setAppointments((prev) => [result.appointment!, ...prev]);
+      setBusySlots((prev) => [...prev, result.busySlot!]);
 
-      const endH24 = Math.floor(endMin / 60);
-      const endMins = endMin % 60;
-      const endAmPm = endH24 >= 12 ? 'PM' : 'AM';
-      const endH12 = endH24 % 12 === 0 ? 12 : endH24 % 12;
-      const calculatedEndTime = `${endH12.toString().padStart(2, '0')}:${endMins.toString().padStart(2, '0')} ${endAmPm}`;
+      try {
+        const stored = [result.appointment, ...appointments];
+        localStorage.setItem(getTenantApptsKey(activeClientId), JSON.stringify(stored));
+      } catch {}
 
-      // 1. Calculate 15-minute quanta blocks for deterministic locking (including buffer)
-      const buffer = content.businessHours?.bufferMinutes || 0;
-      const effectiveEndMin = endMin + buffer;
-      const BLOCK_SIZE = 15;
-      const blockMinutes: number[] = [];
-      for (let m = Math.floor(startMin / BLOCK_SIZE) * BLOCK_SIZE; m < effectiveEndMin; m += BLOCK_SIZE) {
-        blockMinutes.push(m);
-      }
-
-      // 2. Identify candidate staff member(s)
-      const dateObj = new Date(`${appointment.date}T00:00:00`);
-      const dayNames: DayOfWeek[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-      const dayOfWeek = dayNames[dateObj.getDay()];
-
-      let candidateStaffList: { id: string; name: string }[] = [];
-
-      if (appointment.staffId) {
-        // Specific specialist requested
-        const staffMember = (content.staff || []).find((s) => s.id === appointment.staffId);
-        if (staffMember && (staffMember.active === false || (staffMember.workingDays && !staffMember.workingDays.includes(dayOfWeek)))) {
-          return { success: false, error: 'INVALID_STAFF' };
-        }
-        candidateStaffList = [
-          { id: appointment.staffId, name: appointment.staffName || staffMember?.name || 'Specialist' }
-        ];
-      } else {
-        // "Any Specialist"
-        const activeSvc = (content.services || []).find((s) => s.id === appointment.serviceId);
-        const eligibleStaff = (content.staff || []).filter((st) => {
-          if (st.active === false) return false;
-          if (st.workingDays && !st.workingDays.includes(dayOfWeek)) return false;
-          if (activeSvc?.eligibleStaffIds && activeSvc.eligibleStaffIds.length > 0) {
-            return activeSvc.eligibleStaffIds.includes(st.id);
-          }
-          if (st.assignedServiceIds && st.assignedServiceIds.length > 0 && activeSvc) {
-            return st.assignedServiceIds.includes(activeSvc.id);
-          }
-          return true;
-        });
-
-        if (isModuleEnabled('staffManagement') && content.staff && content.staff.length > 0) {
-          if (eligibleStaff.length === 0) {
-            return { success: false, error: 'CLOSED' };
-          }
-          candidateStaffList = eligibleStaff.map((s) => ({ id: s.id, name: s.name }));
-        } else {
-          // Solo atelier / Khushi MUA
-          candidateStaffList = [{ id: 'solo', name: content.brand.founder || 'Lead Artist' }];
-        }
-      }
-
-      const newAptId = `apt-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const nowIso = new Date().toISOString();
-
-      if (db) {
-        // Run atomic Firestore transaction
-        const txResult = await runTransaction(db, async (transaction) => {
-          // --- READ PHASE: Must read all lock documents across all candidates before writing ---
-          type StaffCheck = {
-            staff: { id: string; name: string };
-            locks: { lockId: string; blockMinute: number; ref: any }[];
-          };
-
-          const staffChecks: StaffCheck[] = candidateStaffList.map((st) => ({
-            staff: st,
-            locks: blockMinutes.map((bMin) => {
-              const lockId = `${appointment.date}_${st.id}_${bMin}`;
-              const ref = doc(db, 'clients', activeClientId, 'slot_locks', lockId);
-              return { lockId, blockMinute: bMin, ref };
-            }),
-          }));
-
-          const readPromises: Promise<{ staffId: string; lockId: string; exists: boolean; blockMinute: number; ref: any }>[] = [];
-          for (const sc of staffChecks) {
-            for (const lock of sc.locks) {
-              readPromises.push(
-                transaction.get(lock.ref).then((snap) => ({
-                  staffId: sc.staff.id,
-                  lockId: lock.lockId,
-                  exists: snap.exists(),
-                  blockMinute: lock.blockMinute,
-                  ref: lock.ref,
-                }))
-              );
-            }
-          }
-
-          const readResults = await Promise.all(readPromises);
-
-          // Find first candidate staff member who has zero conflicting locks
-          let chosenStaff: { id: string; name: string } | null = null;
-          let chosenLocks: { lockId: string; blockMinute: number; ref: any }[] = [];
-
-          for (const sc of staffChecks) {
-            const staffLocks = readResults.filter((r) => r.staffId === sc.staff.id);
-            const isBlocked = staffLocks.some((r) => r.exists);
-            if (!isBlocked) {
-              chosenStaff = sc.staff;
-              chosenLocks = sc.locks;
-              break;
-            }
-          }
-
-          if (!chosenStaff || chosenLocks.length === 0) {
-            throw new Error('SLOT_TAKEN');
-          }
-
-          // --- WRITE PHASE: Atomically write locks + appointment + busy_slot ---
-          const lockIds = chosenLocks.map((l) => l.lockId);
-
-          for (const lock of chosenLocks) {
-            const lockData: SlotLockItem = {
-              id: lock.lockId,
-              clientId: activeClientId,
-              appointmentId: newAptId,
-              date: appointment.date,
-              staffId: chosenStaff.id,
-              blockMinute: lock.blockMinute,
-              startMinute: startMin,
-              endMinute: endMin,
-              createdAt: nowIso,
-            };
-            transaction.set(lock.ref, lockData);
-          }
-
-          const aptDocRef = doc(db, 'clients', activeClientId, 'appointments', newAptId);
-          const finalAppointment: AppointmentItem = {
-            ...appointment,
-            id: newAptId,
-            clientId: activeClientId,
-            staffId: chosenStaff.id,
-            staffName: chosenStaff.name,
-            startMinute: startMin,
-            endMinute: endMin,
-            endTime: appointment.endTime || calculatedEndTime,
-            durationMinutes: duration,
-            status: 'pending',
-            createdAt: nowIso,
-            lockIds,
-          };
-          transaction.set(aptDocRef, finalAppointment);
-
-          const busyDocRef = doc(db, 'clients', activeClientId, 'busy_slots', newAptId);
-          const finalBusySlot: BusySlotItem = {
-            id: newAptId,
-            date: appointment.date,
-            startMinute: startMin,
-            endMinute: endMin,
-            staffId: chosenStaff.id,
-          };
-          transaction.set(busyDocRef, finalBusySlot);
-
-          return {
-            appointment: finalAppointment,
-            busySlot: finalBusySlot,
-            assignedStaff: chosenStaff,
-          };
-        });
-
-        // Transaction successfully committed! Update local React states
-        setAppointments((prev) => [txResult.appointment, ...prev]);
-        setBusySlots((prev) => [...prev, txResult.busySlot]);
-
-        try {
-          const stored = [txResult.appointment, ...appointments];
-          localStorage.setItem(getTenantApptsKey(activeClientId), JSON.stringify(stored));
-        } catch {}
-
-        return {
-          success: true,
-          appointmentId: newAptId,
-          assignedStaff: txResult.assignedStaff,
-        };
-      } else {
-        // Local offline / development fallback
-        const chosenStaff = candidateStaffList[0];
-        const lockIds = blockMinutes.map((b) => `${appointment.date}_${chosenStaff.id}_${b}`);
-        const fallbackAppointment: AppointmentItem = {
-          ...appointment,
-          id: newAptId,
-          clientId: activeClientId,
-          staffId: chosenStaff.id,
-          staffName: chosenStaff.name,
-          startMinute: startMin,
-          endMinute: endMin,
-          endTime: appointment.endTime || calculatedEndTime,
-          durationMinutes: duration,
-          status: 'pending',
-          createdAt: nowIso,
-          lockIds,
-        };
-        const fallbackBusySlot: BusySlotItem = {
-          id: newAptId,
-          date: appointment.date,
-          startMinute: startMin,
-          endMinute: endMin,
-          staffId: chosenStaff.id,
-        };
-        setAppointments((prev) => [fallbackAppointment, ...prev]);
-        setBusySlots((prev) => [...prev, fallbackBusySlot]);
-        return {
-          success: true,
-          appointmentId: newAptId,
-          assignedStaff: chosenStaff,
-        };
-      }
-    } catch (e: any) {
-      if (e?.message === 'SLOT_TAKEN' || e?.message?.includes('SLOT_TAKEN')) {
-        return { success: false, error: 'SLOT_TAKEN' };
-      }
-      console.warn('Failed to record appointment atomically:', e);
-      return { success: false, error: e?.message || 'TRANSACTION_FAILED' };
+      return {
+        success: true,
+        appointmentId: result.appointmentId,
+        assignedStaff: result.assignedStaff,
+      };
     }
+
+    return {
+      success: false,
+      error: result.error,
+    };
   };
 
   const updateAppointmentStatus = async (id: string, status: AppointmentStatus): Promise<boolean> => {
@@ -1589,21 +837,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem(getTenantApptsKey(activeClientId), JSON.stringify(updatedList));
       } catch {}
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          const aptDocRef = doc(db, 'clients', activeClientId, 'appointments', id);
-          await setDoc(aptDocRef, { status }, { merge: true });
-
-          if (status === 'cancelled') {
-            await deleteDoc(doc(db, 'clients', activeClientId, 'busy_slots', id));
-            if (targetApt?.lockIds && Array.isArray(targetApt.lockIds)) {
-              for (const lockId of targetApt.lockIds) {
-                await deleteDoc(doc(db, 'clients', activeClientId, 'slot_locks', lockId));
-              }
-            }
-          }
-        }, 2000);
-      }
+      await bookingService.updateAppointmentStatus(activeClientId, id, status, targetApt?.lockIds);
       return true;
     } catch (e) {
       console.warn('Failed to update appointment status:', e);
@@ -1622,17 +856,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.setItem(getTenantApptsKey(activeClientId), JSON.stringify(updatedList));
       } catch {}
 
-      if (db) {
-        safeFirestoreWrite(async () => {
-          await deleteDoc(doc(db, 'clients', activeClientId, 'appointments', id));
-          await deleteDoc(doc(db, 'clients', activeClientId, 'busy_slots', id));
-          if (targetApt?.lockIds && Array.isArray(targetApt.lockIds)) {
-            for (const lockId of targetApt.lockIds) {
-              await deleteDoc(doc(db, 'clients', activeClientId, 'slot_locks', lockId));
-            }
-          }
-        }, 2000);
-      }
+      await bookingService.deleteAppointment(activeClientId, id, targetApt?.lockIds);
       return true;
     } catch (e) {
       console.warn('Failed to delete appointment:', e);

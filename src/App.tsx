@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
-import { ContentProvider, useSiteContent } from './context/ContentContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { TenantProvider, useTenant } from './context/TenantContext';
+import { ContentProvider, useSiteContent } from './context/ContentContext';
+import { authorizationService } from './services/auth/AuthorizationService';
 import { Header } from './components/Header';
 import { Hero } from './components/Hero';
 import { IntroPhilosophy } from './components/IntroPhilosophy';
@@ -26,12 +28,24 @@ import { DateAvailabilityCalendar } from './components/DateAvailabilityCalendar'
 import { OfferPopupModal } from './components/OfferPopupModal';
 import { DEFAULT_SECTIONS_VISIBILITY } from './data/siteContent';
 import { Instagram } from 'lucide-react';
+import { UniversalPlatformLanding } from './components/platform/UniversalPlatformLanding';
+import { UniversalLoginModal } from './components/auth/UniversalLoginModal';
+import { NoWorkspaceModal } from './components/auth/NoWorkspaceModal';
+import { EmailVerificationModal } from './components/auth/EmailVerificationModal';
+import { EmployeeWorkspaceModal } from './components/employee/EmployeeWorkspaceModal';
+import type { IdentityResolutionResult, NoWorkspaceReason } from './domain/identity/types';
 
-function MainWebsite() {
+interface MainWebsiteProps {
+  onOpenLogin: () => void;
+  onOpenAdminPanel: () => void;
+}
+
+function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
   const { content, activeClientId, setActiveClientId, clientsList, isModuleEnabled } = useSiteContent();
   const { brand } = content;
   const sections = content.sectionsVisibility || DEFAULT_SECTIONS_VISIBILITY;
-  const { isAdmin, isDeveloper } = useAuth();
+  const { user, isAdmin } = useAuth();
+  const { role, isDeveloper } = useTenant();
 
   const currentTenantMeta = clientsList.find((c) => c.id === activeClientId);
   const isTenantDisabled = Boolean(
@@ -43,59 +57,6 @@ function MainWebsite() {
     id: 'bridal',
   });
 
-  // Admin state
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
-  const [isMasterAdminOpen, setIsMasterAdminOpen] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-
-  const cleanAdminHash = () => {
-    const hash = window.location.hash.toLowerCase();
-    if (hash === '#masteradmin' || hash === '#myadminpanel' || hash === '#admin') {
-      try {
-        history.replaceState(null, '', window.location.pathname + window.location.search);
-      } catch {}
-    }
-  };
-
-  // Route handling for #masteradmin (developer cockpit) and #myadminpanel / #admin (tenant CMS)
-  useEffect(() => {
-    const handleCheckAdminRoute = () => {
-      const hash = window.location.hash.toLowerCase();
-      if (hash === '#masteradmin') {
-        if (isDeveloper) {
-          setIsMasterAdminOpen(true);
-        } else {
-          setIsLoginModalOpen(true);
-        }
-      } else if (hash === '#myadminpanel' || hash === '#admin') {
-        if (isAdmin) {
-          setIsAdminPanelOpen(true);
-        } else {
-          setIsLoginModalOpen(true);
-        }
-      }
-    };
-
-    handleCheckAdminRoute();
-    window.addEventListener('hashchange', handleCheckAdminRoute);
-    return () => window.removeEventListener('hashchange', handleCheckAdminRoute);
-  }, [isAdmin, isDeveloper]);
-
-  // Keyboard shortcut: Ctrl + Alt + A to open admin
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.altKey && (e.key === 'a' || e.key === 'A')) {
-        e.preventDefault();
-        if (isAdmin) {
-          setIsAdminPanelOpen((prev) => !prev);
-        } else {
-          setIsLoginModalOpen(true);
-        }
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAdmin]);
 
   // Dynamic SEO & Meta tags
   useEffect(() => {
@@ -174,9 +135,9 @@ function MainWebsite() {
 
   const handleOpenAdminPortal = () => {
     if (isAdmin) {
-      setIsAdminPanelOpen(true);
+      onOpenAdminPanel();
     } else {
-      setIsLoginModalOpen(true);
+      onOpenLogin();
     }
   };
 
@@ -374,22 +335,199 @@ function MainWebsite() {
         />
       )}
 
-      {/* Admin Login Modal */}
-      <AdminLoginModal
-        isOpen={isLoginModalOpen}
+    </div>
+  );
+}
+
+function AppShell() {
+  const { user, isAdmin } = useAuth();
+  const { role, isDeveloper } = useTenant();
+  const { activeClientId, setActiveClientId } = useSiteContent();
+
+  // Active view: 'platform' | 'storefront'
+  const [currentView, setCurrentView] = useState<'platform' | 'storefront'>(() => {
+    if (typeof window === 'undefined') return 'storefront';
+    const path = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    const search = window.location.search.toLowerCase();
+    if (path === '/platform' || hash === '#platform' || hash === '#portal' || search.includes('view=platform')) {
+      return 'platform';
+    }
+    return 'storefront';
+  });
+
+  // Admin & Universal Authentication State
+  const [isUniversalLoginOpen, setIsUniversalLoginOpen] = useState(false);
+  const [isMasterAdminOpen, setIsMasterAdminOpen] = useState(false);
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
+  const [isEmployeeWorkspaceOpen, setIsEmployeeWorkspaceOpen] = useState(false);
+  const [employeeWorkspaceData, setEmployeeWorkspaceData] = useState<{
+    tenantId: string;
+    employeeId?: string;
+    permissions?: string[];
+  }>({ tenantId: '' });
+
+  const [isNoWorkspaceOpen, setIsNoWorkspaceOpen] = useState(false);
+  const [noWorkspaceData, setNoWorkspaceData] = useState<{
+    reason: NoWorkspaceReason;
+    tenantId?: string | null;
+    userEmail?: string | null;
+  }>({ reason: 'UNASSIGNED' });
+
+  const [isEmailVerificationOpen, setIsEmailVerificationOpen] = useState(false);
+  const [emailVerificationEmail, setEmailVerificationEmail] = useState('');
+
+  const cleanAdminHash = () => {
+    const hash = window.location.hash.toLowerCase();
+    if (hash === '#masteradmin' || hash === '#myadminpanel' || hash === '#admin') {
+      try {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      } catch {}
+    }
+  };
+
+  // Route handling for #masteradmin (developer cockpit) and #myadminpanel / #admin (tenant CMS)
+  useEffect(() => {
+    const handleCheckAdminRoute = () => {
+      const hash = window.location.hash.toLowerCase();
+      if (hash === '#masteradmin') {
+        if (authorizationService.canAccessMasterAdmin(role, user?.email)) {
+          setIsMasterAdminOpen(true);
+        } else {
+          setIsUniversalLoginOpen(true);
+        }
+      } else if (hash === '#myadminpanel' || hash === '#admin') {
+        if (isAdmin) {
+          setIsAdminPanelOpen(true);
+        } else {
+          setIsUniversalLoginOpen(true);
+        }
+      }
+    };
+
+    handleCheckAdminRoute();
+    window.addEventListener('hashchange', handleCheckAdminRoute);
+    return () => window.removeEventListener('hashchange', handleCheckAdminRoute);
+  }, [user, isAdmin, isDeveloper, role]);
+
+  // Keyboard shortcut: Ctrl + Alt + A to open admin
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        if (isAdmin) {
+          setIsAdminPanelOpen((prev) => !prev);
+        } else {
+          setIsUniversalLoginOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAdmin]);
+
+  // Route listener for Platform View vs Storefront View
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      const search = window.location.search.toLowerCase();
+      if (path === '/platform' || hash === '#platform' || hash === '#portal' || search.includes('view=platform')) {
+        setCurrentView('platform');
+      } else if (hash === '#storefront' || hash === '' || path === '/') {
+        if (hash !== '#masteradmin' && hash !== '#myadminpanel' && hash !== '#admin') {
+          setCurrentView('storefront');
+        }
+      }
+    };
+    window.addEventListener('hashchange', handleLocationChange);
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', handleLocationChange);
+      window.removeEventListener('popstate', handleLocationChange);
+    };
+  }, []);
+
+  const navigateToStorefront = () => {
+    try {
+      if (window.location.hash === '#platform' || window.location.hash === '#portal') {
+        history.replaceState(null, '', window.location.pathname + window.location.search.replace('view=platform', ''));
+      }
+    } catch {}
+    setCurrentView('storefront');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleUniversalLoginSuccess = (resolution: IdentityResolutionResult) => {
+    setIsUniversalLoginOpen(false);
+    const { identity, destination } = resolution;
+    switch (destination) {
+      case 'MASTER_ADMIN':
+        setIsMasterAdminOpen(true);
+        break;
+      case 'TENANT_ADMIN':
+        if (identity.type === 'TENANT_OWNER' && identity.tenantId) {
+          setActiveClientId(identity.tenantId);
+        }
+        setIsAdminPanelOpen(true);
+        break;
+      case 'EMPLOYEE_WORKSPACE':
+        if (identity.type === 'TENANT_EMPLOYEE') {
+          setEmployeeWorkspaceData({
+            tenantId: identity.tenantId || activeClientId,
+            employeeId: identity.employeeId,
+            permissions: identity.permissions,
+          });
+        }
+        setIsEmployeeWorkspaceOpen(true);
+        break;
+      case 'NO_WORKSPACE':
+        if (identity.type === 'NO_WORKSPACE') {
+          setNoWorkspaceData({
+            reason: identity.reason || 'UNASSIGNED',
+            tenantId: identity.tenantId,
+            userEmail: identity.email,
+          });
+        } else {
+          setNoWorkspaceData({
+            reason: 'UNASSIGNED',
+            userEmail: user?.email,
+          });
+        }
+        setIsNoWorkspaceOpen(true);
+        break;
+      case 'EMAIL_VERIFICATION':
+        setEmailVerificationEmail(('email' in identity && identity.email) || user?.email || '');
+        setIsEmailVerificationOpen(true);
+        break;
+      default:
+        setIsAdminPanelOpen(true);
+        break;
+    }
+  };
+
+  return (
+    <>
+      {currentView === 'platform' ? (
+        <UniversalPlatformLanding
+          onOpenLogin={() => setIsUniversalLoginOpen(true)}
+          onNavigateToStorefront={navigateToStorefront}
+        />
+      ) : (
+        <MainWebsite
+          onOpenLogin={() => setIsUniversalLoginOpen(true)}
+          onOpenAdminPanel={() => setIsAdminPanelOpen(true)}
+        />
+      )}
+
+      {/* Universal Authentication Modal */}
+      <UniversalLoginModal
+        isOpen={isUniversalLoginOpen}
         onClose={() => {
-          setIsLoginModalOpen(false);
+          setIsUniversalLoginOpen(false);
           cleanAdminHash();
         }}
-        onLoginSuccess={() => {
-          setIsLoginModalOpen(false);
-          const hash = window.location.hash.toLowerCase();
-          if (hash === '#masteradmin') {
-            setIsMasterAdminOpen(true);
-          } else {
-            setIsAdminPanelOpen(true);
-          }
-        }}
+        onLoginSuccess={handleUniversalLoginSuccess}
       />
 
       {/* Master Developer Cockpit (Developer Only) */}
@@ -414,7 +552,36 @@ function MainWebsite() {
           cleanAdminHash();
         }}
       />
-    </div>
+
+      {/* Staff Employee Workspace Modal */}
+      <EmployeeWorkspaceModal
+        isOpen={isEmployeeWorkspaceOpen}
+        onClose={() => setIsEmployeeWorkspaceOpen(false)}
+        tenantId={employeeWorkspaceData.tenantId}
+        employeeId={employeeWorkspaceData.employeeId}
+        permissions={employeeWorkspaceData.permissions}
+      />
+
+      {/* No Workspace Checkpoint Modal */}
+      <NoWorkspaceModal
+        isOpen={isNoWorkspaceOpen}
+        onClose={() => setIsNoWorkspaceOpen(false)}
+        reason={noWorkspaceData.reason}
+        tenantId={noWorkspaceData.tenantId}
+        userEmail={noWorkspaceData.userEmail}
+      />
+
+      {/* Email Verification Checkpoint Modal */}
+      <EmailVerificationModal
+        isOpen={isEmailVerificationOpen}
+        onClose={() => setIsEmailVerificationOpen(false)}
+        userEmail={emailVerificationEmail}
+        onVerified={() => {
+          setIsEmailVerificationOpen(false);
+          setIsUniversalLoginOpen(true);
+        }}
+      />
+    </>
   );
 }
 
@@ -422,10 +589,13 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <ContentProvider>
-          <MainWebsite />
-        </ContentProvider>
+        <TenantProvider>
+          <ContentProvider>
+            <AppShell />
+          </ContentProvider>
+        </TenantProvider>
       </AuthProvider>
     </ThemeProvider>
   );
 }
+

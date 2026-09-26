@@ -4,7 +4,7 @@ import {
   ModuleId
 } from '../../types';
 import { ARCHETYPE_PRESETS, MODULE_REGISTRY } from '../../data/archetypePresets';
-import { SlideToggle } from '../AdminPanel';
+import { SlideToggle } from '../ui/SlideToggle';
 import { Sparkles, Layers, CheckCircle2, Sliders, Info, ShieldCheck } from 'lucide-react';
 
 interface ArchetypeModulesTabProps {

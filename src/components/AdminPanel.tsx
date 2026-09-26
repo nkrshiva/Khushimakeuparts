@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { storage } from '../firebase';
+import { mediaService } from '../services/media/MediaService';
 import {
   X,
   Save,
@@ -55,6 +54,8 @@ import {
 import { parseYouTubeId, resolvePosterImage } from '../utils/videoUtils';
 import { useSiteContent } from '../context/ContentContext';
 import { useAuth } from '../context/AuthContext';
+import { useTenant } from '../context/TenantContext';
+import { authorizationService } from '../services/auth/AuthorizationService';
 import { SiteContent, SectionVisibilityConfig, DEFAULT_OFFER_POPUP } from '../data/siteContent';
 import { PortfolioCategory, PortfolioModel } from '../data/portfolioData';
 import {
@@ -84,6 +85,7 @@ import { StaffManagerTab } from './admin/StaffManagerTab';
 import { BusinessHoursTab } from './admin/BusinessHoursTab';
 import { AppointmentsTab } from './admin/AppointmentsTab';
 import { OfferPopupModal } from './OfferPopupModal';
+import { SlideToggle } from './ui/SlideToggle';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -111,55 +113,6 @@ type TabType =
   | 'seo'
   | 'export';
 
-export const SlideToggle: React.FC<{
-  checked: boolean;
-  onChange: (val: boolean) => void;
-  label?: string;
-  sublabel?: string;
-  size?: 'sm' | 'md';
-}> = ({ checked, onChange, label, sublabel, size = 'md' }) => {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      {(label || sublabel) && (
-        <div className="flex flex-col text-left">
-          {label && (
-            <span className={`font-medium ${size === 'sm' ? 'text-xs text-[#fed488]' : 'text-sm text-white'} flex items-center gap-1.5`}>
-              {checked ? (
-                <Eye className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <EyeOff className="w-3.5 h-3.5 text-rose-400" />
-              )}
-              {label}
-            </span>
-          )}
-          {sublabel && <span className="text-[11px] text-[#dfc3c9]/70">{sublabel}</span>}
-        </div>
-      )}
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex items-center rounded-full transition-colors cursor-pointer shrink-0 border ${
-          size === 'sm' ? 'w-9 h-5 p-0.5' : 'w-12 h-6 p-0.5'
-        } ${
-          checked
-            ? 'bg-emerald-600 border-emerald-400/60 shadow-xs'
-            : 'bg-zinc-800 border-white/20'
-        }`}
-      >
-        <span
-          className={`inline-block rounded-full bg-white transition-transform shadow-md ${
-            size === 'sm'
-              ? `w-3.5 h-3.5 ${checked ? 'translate-x-4' : 'translate-x-0'}`
-              : `w-5 h-5 ${checked ? 'translate-x-6' : 'translate-x-0'}`
-          }`}
-        />
-      </button>
-    </div>
-  );
-};
-
 export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const {
     content,
@@ -184,7 +137,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     appointments,
     enquiries,
   } = useSiteContent();
-  const { isAdmin, user, role, isDeveloper, assignedClientId, logout } = useAuth();
+  const { isAdmin, user, logout } = useAuth();
+  const { role, isDeveloper, assignedClientId } = useTenant();
 
   // Local draft state for editing before saving
   const [draft, setDraft] = useState<SiteContent>(content);
@@ -426,10 +380,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
   // Ensure client cannot remain on export tab
   React.useEffect(() => {
-    if (!isDeveloper && activeTab === 'export') {
+    if (!authorizationService.canExportConfig(role) && activeTab === 'export') {
       setActiveTab('enquiries');
     }
-  }, [isDeveloper, activeTab]);
+  }, [role, activeTab]);
 
   const handleCreateNewClient = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -560,8 +514,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         setJustSaved(true);
         setTimeout(() => setJustSaved(false), 3000);
 
-        // If saving on Main Site and sync-to-all is enabled, sync across all client sites!
-        if (activeClientId === 'khushi' && syncAlsoOnSave && clientsList.length > 1) {
+        // If saving with global sync enabled and authorized as developer, sync across all client sites!
+        if (authorizationService.canSyncAllTenants(role) && syncAlsoOnSave && clientsList.length > 1) {
           const syncRes = await syncContentToAllClients(payload, syncModules);
           showNotice(
             'success',
@@ -638,38 +592,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
   const processAndUploadFile = async (file: File): Promise<string> => {
     const compressedDataUrl = await compressImageFile(file);
 
-    if (isFirebaseConnected && storage) {
+    if (isFirebaseConnected && mediaService.isAvailable()) {
       try {
-        const uploadPromise = new Promise<string>((resolve, reject) => {
-          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-          const storageRef = ref(storage, `uploads/${Date.now()}_${safeName}`);
-          const uploadTask = uploadBytesResumable(storageRef, file);
-
-          const timer = setTimeout(() => {
-            uploadTask.cancel();
-            reject(new Error('Firebase upload timed out, using optimized attachment'));
-          }, 3500);
-
-          uploadTask.on(
-            'state_changed',
-            null,
-            (err) => {
-              clearTimeout(timer);
-              reject(err);
-            },
-            async () => {
-              clearTimeout(timer);
-              try {
-                const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-                resolve(downloadUrl);
-              } catch (e) {
-                reject(e);
-              }
-            }
-          );
-        });
-
-        const cloudUrl = await uploadPromise;
+        const cloudUrl = await mediaService.uploadAdminMedia(file, 3500);
         return cloudUrl;
       } catch (err) {
         console.info('Using client-compressed photo attachment:', err);
@@ -1224,7 +1149,7 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
             SEO &amp; Tracking Analytics
           </button>
 
-          {isDeveloper && (
+          {authorizationService.canExportConfig(role) && (
             <>
               <div className="my-2 border-t border-white/10" />
 
@@ -1243,7 +1168,7 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
           )}
 
           <div className="mt-auto pt-4 flex flex-col gap-2">
-            {isDeveloper && (
+            {authorizationService.canResetDefaults(role) && (
               <button
                 onClick={handleReset}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] text-amber-300/80 hover:text-amber-200 hover:bg-amber-950/40 transition-colors cursor-pointer"
