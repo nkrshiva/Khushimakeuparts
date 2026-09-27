@@ -1,5 +1,4 @@
 import type { TenantRole } from '../../domain/tenant/types';
-import { MASTER_ADMIN_EMAIL } from '../../config/adminCredentials';
 
 /**
  * AuthorizationService
@@ -18,16 +17,10 @@ import { MASTER_ADMIN_EMAIL } from '../../config/adminCredentials';
  */
 export class AuthorizationService {
   /**
-   * Whether the role is permitted to access the Master Admin Cockpit (developer only, matching master admin identity).
+   * Whether the role is permitted to access the Master Admin Cockpit (developer only).
    */
-  canAccessMasterAdmin(role: TenantRole, email?: string | null): boolean {
-    if (role !== 'developer') {
-      return false;
-    }
-    if (email !== undefined && email !== null) {
-      return email.trim().toLowerCase() === MASTER_ADMIN_EMAIL;
-    }
-    return true;
+  canAccessMasterAdmin(role: TenantRole, _email?: string | null): boolean {
+    return role === 'developer';
   }
 
   /**

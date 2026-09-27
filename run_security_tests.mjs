@@ -854,7 +854,7 @@ async function run() {
       };
     }
 
-    if (cleanEmail === MASTER_ADMIN_EMAIL && (profile?.role === 'developer' || !profile)) {
+    if (profile?.role === 'developer' || (cleanEmail === MASTER_ADMIN_EMAIL && !profile)) {
       return { type: 'MASTER_PLATFORM_ADMIN', uid: user.uid, email: cleanEmail };
     }
 

@@ -62,50 +62,57 @@ export class IdentityResolutionService implements IIdentityResolutionService {
     }
 
     // 2. Authoritative Master Platform Admin Resolution
-    // Strictly requires email matching platform developer bootstrap identity
-    if (isBootstrapDeveloperEmail(cleanEmail)) {
-      if (profile?.role === 'developer' || !profile) {
-        // PHASE 1 FIX — Bootstrap write is no longer fire-and-forget.
-        //
-        // Problem eliminated: the Firestore rule isDeveloper() calls getUserData() which reads
-        // /users/{uid} at rule evaluation time. When the write was inside a silent try/catch, a
-        // Firestore permission error or cold-start delay could leave the document uncommitted.
-        // The next Firestore operation (e.g. saveTenant) would then see an empty getUserData()
-        // result and isDeveloper() would evaluate to false → PERMISSION_DENIED.
-        //
-        // Fix: await the write fully, then confirm it committed via a read-after-write.
-        // If either operation fails, throw a tagged error rather than silently continuing.
-        // The caller (resolve/UniversalLoginModal) must handle the failure explicitly.
-        if (!profile) {
-          // Will throw if the Firestore write is denied or fails — error propagates to caller.
-          await this.tenantRepo.saveUserProfile(user.uid, {
-            uid: user.uid,
-            email: cleanEmail,
-            role: 'developer',
-            assignedClientId: null,
-            updatedAt: new Date().toISOString(),
-          });
+    // Requirement 1: An existing /users/{uid} profile with role === 'developer' is recognized
+    // unconditionally as MASTER_PLATFORM_ADMIN without requiring isBootstrapDeveloperEmail() or matching any email.
+    if (profile?.role === 'developer') {
+      return {
+        type: 'MASTER_PLATFORM_ADMIN',
+        uid: user.uid,
+        email: cleanEmail,
+        name: profile.displayName || 'Platform Super Admin',
+      };
+    }
 
-          // Read-after-write: confirm the committed document is visible in Firestore before
-          // returning MASTER_PLATFORM_ADMIN. This ensures isDeveloper() on the next rule
-          // evaluation will find role == 'developer' in getUserData().
-          const committed = await this.tenantRepo.getUserProfile(user.uid);
-          if (!committed || committed.role !== 'developer') {
-            throw new Error(
-              '[BOOTSTRAP_ERROR] Developer identity bootstrap failed: the platform identity ' +
-              'record could not be confirmed in Firestore. Please sign out and sign in again. ' +
-              'If the problem persists, verify that the Firestore security rules are deployed ' +
-              'and that the bootstrap allowCreate rule for naveen.kr.shiva@gmail.com is active.'
-            );
-          }
-        }
-        return {
-          type: 'MASTER_PLATFORM_ADMIN',
-          uid: user.uid,
-          email: cleanEmail,
-          name: 'Platform Super Admin',
-        };
+    // Requirement 4: Initial developer bootstrap mechanism strictly for first sign-in before profile exists
+    if (!profile && isBootstrapDeveloperEmail(cleanEmail)) {
+      // PHASE 1 FIX — Bootstrap write is no longer fire-and-forget.
+      //
+      // Problem eliminated: the Firestore rule isDeveloper() calls getUserData() which reads
+      // /users/{uid} at rule evaluation time. When the write was inside a silent try/catch, a
+      // Firestore permission error or cold-start delay could leave the document uncommitted.
+      // The next Firestore operation (e.g. saveTenant) would then see an empty getUserData()
+      // result and isDeveloper() would evaluate to false → PERMISSION_DENIED.
+      //
+      // Fix: await the write fully, then confirm it committed via a read-after-write.
+      // If either operation fails, throw a tagged error rather than silently continuing.
+      // The caller (resolve/UniversalLoginModal) must handle the failure explicitly.
+      await this.tenantRepo.saveUserProfile(user.uid, {
+        uid: user.uid,
+        email: cleanEmail,
+        role: 'developer',
+        assignedClientId: null,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Read-after-write: confirm the committed document is visible in Firestore before
+      // returning MASTER_PLATFORM_ADMIN. This ensures isDeveloper() on the next rule
+      // evaluation will find role == 'developer' in getUserData().
+      const committed = await this.tenantRepo.getUserProfile(user.uid);
+      if (!committed || committed.role !== 'developer') {
+        throw new Error(
+          '[BOOTSTRAP_ERROR] Developer identity bootstrap failed: the platform identity ' +
+          'record could not be confirmed in Firestore. Please sign out and sign in again. ' +
+          'If the problem persists, verify that the Firestore security rules are deployed ' +
+          'and that the bootstrap allowCreate rule for naveen.kr.shiva@gmail.com is active.'
+        );
       }
+
+      return {
+        type: 'MASTER_PLATFORM_ADMIN',
+        uid: user.uid,
+        email: cleanEmail,
+        name: 'Platform Super Admin',
+      };
     }
 
 

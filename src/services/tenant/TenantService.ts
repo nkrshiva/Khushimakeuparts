@@ -51,7 +51,7 @@ export class TenantService {
     try {
       const data = await this.repository.getUserProfile(uid);
       if (data) {
-        const isMasterAdmin = data?.role === 'developer' && isBootstrapDeveloperEmail(cleanEmail);
+        const isMasterAdmin = data?.role === 'developer';
         const resolvedRole: ActiveTenantRole = isMasterAdmin
           ? 'developer'
           : (data?.role === 'employee' ? 'employee' : 'client');
