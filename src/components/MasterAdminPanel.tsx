@@ -114,15 +114,8 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isReconciling, setIsReconciling] = useState(false);
 
-  // Independent Authorization Guard: refuse privileged rendering unless role === 'developer' and matching master admin identity
-  if (!isOpen || !authorizationService.canAccessMasterAdmin(role, user?.email)) return null;
-
-  const showNotice = (type: 'success' | 'error', text: string) => {
-    setNotice({ type, text });
-    setTimeout(() => setNotice(null), 5000);
-  };
-
   // Auto-reconcile pending tenants against authoritative /clients/{id} documents
+  // MUST be before the early return guard — hooks must always be called unconditionally
   useEffect(() => {
     if (!isOpen || role !== 'developer') return;
     const hasPending = clientsList.some((c) => c.status === 'pending_invitation' || !c.status);
@@ -136,6 +129,14 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
       console.warn('[MasterAdminPanel] Notice during pending tenant reconciliation:', err);
     });
   }, [isOpen, role, clientsList]);
+
+  // Independent Authorization Guard: refuse privileged rendering unless role === 'developer' and matching master admin identity
+  if (!isOpen || !authorizationService.canAccessMasterAdmin(role, user?.email)) return null;
+
+  const showNotice = (type: 'success' | 'error', text: string) => {
+    setNotice({ type, text });
+    setTimeout(() => setNotice(null), 5000);
+  };
 
   const handleManualReconcile = async () => {
     setIsReconciling(true);
