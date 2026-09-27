@@ -44,6 +44,7 @@ export class InvitationDeliveryService {
     // 2. Dispatch request to /api/send-invitation
     try {
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      console.log('[InvitationDeliveryService] POSTing to /api/send-invitation for:', params.invitationId);
       const response = await fetch('/api/send-invitation', {
         method: 'POST',
         headers: {
@@ -57,9 +58,11 @@ export class InvitationDeliveryService {
         }),
       });
 
+      console.log('[InvitationDeliveryService] /api/send-invitation HTTP response status:', response.status);
       const data = await response.json().catch(() => null);
 
       if (!response.ok) {
+        console.error('[InvitationDeliveryService] /api/send-invitation rejected with status:', response.status, data);
         return {
           success: false,
           error: data?.error || `Server responded with status ${response.status}`,

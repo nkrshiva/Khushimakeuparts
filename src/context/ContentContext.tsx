@@ -518,16 +518,23 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     archetype?: BusinessArchetype;
     invitedOwnerEmail?: string;
   }): Promise<{ success: boolean; id?: string; invitation?: TenantInvitation; error?: string }> => {
-    const result = await tenantService.createTenantSite(role, tenantData, clientsList);
-    if (result.success && result.id && result.summary) {
-      const updatedList = [...clientsList, result.summary];
-      setClientsList(updatedList);
-      try {
-        localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(updatedList));
-      } catch {}
-      return { success: true, id: result.id, invitation: result.invitation };
+    try {
+      console.log('[ContentContext] createClientSite invoked. Current role:', role);
+      const result = await tenantService.createTenantSite(role, tenantData, clientsList);
+      console.log('[ContentContext] tenantService.createTenantSite returned:', result);
+      if (result.success && result.id && result.summary) {
+        const updatedList = [...clientsList, result.summary];
+        setClientsList(updatedList);
+        try {
+          localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(updatedList));
+        } catch {}
+        return { success: true, id: result.id, invitation: result.invitation };
+      }
+      return { success: false, error: result.error };
+    } catch (err: any) {
+      console.error('[ContentContext] Unhandled error in createClientSite:', err);
+      return { success: false, error: err?.message || 'Failed to create client tenant site.' };
     }
-    return { success: false, error: result.error };
   };
 
   // Resend tenant onboarding invitation

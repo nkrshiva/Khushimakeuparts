@@ -117,17 +117,17 @@ export class TenantService {
   ): Promise<CreateTenantResult> {
     // Authoritative Authorization Guard
     if (!authorizationService.canManageTenantLifecycle(role)) {
-      console.warn('[Authorization Guard] Unauthorized attempt to create tenant site');
+      console.warn('[Authorization Guard] Unauthorized attempt to create tenant site. Provided role:', role);
       return {
         success: false,
-        error: 'Unauthorized: Only developers can create new tenant websites.',
+        error: `Unauthorized: Only developers can create new tenant websites (detected role: ${role || 'null'}).`,
       };
     }
 
     try {
       const cleanName = tenantData.name.trim();
       if (!cleanName) {
-        return { success: false, error: 'Salon / Brand name is required' };
+        return { success: false, error: 'Salon / Brand name is required.' };
       }
 
       const slug = cleanName
@@ -160,26 +160,31 @@ export class TenantService {
       const updatedList = [...existingRegistry, newSummary];
 
       // Persist tenant document and update platform registry
+      console.log(`[TenantService] Persisting tenant document to /clients/${id}...`);
       await this.repository.saveTenant(id, {
         ...newSummary,
         content: tailoredContent,
       });
+
+      console.log('[TenantService] Persisting updated registry to /settings/clients_registry...');
       await this.repository.saveClientsRegistry(updatedList);
 
       // If invitedOwnerEmail is provided, create the onboarding invitation
       let invitation: TenantInvitation | undefined;
       if (tenantData.invitedOwnerEmail?.trim()) {
+        console.log('[TenantService] Writing invitation to /tenant_invitations...');
         invitation = await this.repository.createInvitation({
           clientId: id,
           invitedOwnerEmail: tenantData.invitedOwnerEmail.trim(),
           invitedByUid: 'master_developer',
           invitedByEmail: 'naveen.kr.shiva@gmail.com',
         });
+        console.log('[TenantService] Created invitation record successfully:', invitation.invitationId);
       }
 
       return { success: true, id, summary: newSummary, invitation };
     } catch (err: any) {
-      console.error('Failed to create client tenant site:', err);
+      console.error('[TenantService] Failed to create client tenant site:', err);
       return { success: false, error: err?.message || 'Failed to create client website' };
     }
   }

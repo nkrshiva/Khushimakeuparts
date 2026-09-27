@@ -68,6 +68,7 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   // New Tenant Provisioning Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [createModalError, setCreateModalError] = useState<string | null>(null);
   const [newTenantForm, setNewTenantForm] = useState<{
     name: string;
     founder: string;
@@ -153,19 +154,35 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   // Handle Provisioning
   const handleCreateTenant = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateModalError(null);
+    console.log('[MasterAdmin] Provisioning submission triggered:', {
+      name: newTenantForm.name,
+      ownerEmail: newTenantForm.invitedOwnerEmail,
+      founder: newTenantForm.founder,
+      city: newTenantForm.city,
+      archetype: newTenantForm.archetype,
+      currentRole: role,
+      authenticatedUid: user?.uid,
+    });
+
     const cleanName = newTenantForm.name.trim();
     if (!cleanName) {
-      showNotice('error', 'Salon / Brand name is required.');
+      const err = 'Salon / Brand name is required.';
+      setCreateModalError(err);
+      showNotice('error', err);
       return;
     }
     const cleanEmail = newTenantForm.invitedOwnerEmail.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {
-      showNotice('error', 'A valid Owner Email is required for tenant onboarding.');
+      const err = 'A valid Owner Email is required for tenant onboarding.';
+      setCreateModalError(err);
+      showNotice('error', err);
       return;
     }
 
     setIsCreating(true);
     try {
+      console.log('[MasterAdmin] Dispatching createClientSite call...');
       // 1. Provision Tenant in Firestore (PENDING_INVITATION status, active: false)
       const res = await createClientSite({
         ...newTenantForm,
@@ -173,13 +190,24 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
         invitedOwnerEmail: cleanEmail,
       });
 
+      console.log('[MasterAdmin] createClientSite completed with result:', {
+        success: res.success,
+        id: res.id,
+        hasInvitation: Boolean(res.invitation),
+        error: res.error,
+      });
+
       if (!res.success || !res.id) {
-        showNotice('error', res.error || 'Failed to provision tenant.');
+        const errorMsg = res.error || 'Failed to provision tenant.';
+        console.error('[MasterAdmin] Provisioning rejected:', errorMsg);
+        setCreateModalError(errorMsg);
+        showNotice('error', errorMsg);
         setIsCreating(false);
         return;
       }
 
       setShowCreateModal(false);
+      setCreateModalError(null);
       setNewTenantForm({
         name: '',
         founder: '',
@@ -196,10 +224,13 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
       let emailError: string | undefined;
 
       if (res.invitation) {
+        console.log('[MasterAdmin] Dispatching invitation email via Resend API for:', res.invitation.invitationId);
         const emailRes = await invitationDeliveryService.sendInvitationEmail({
           invitationId: res.invitation.invitationId,
           token: res.invitation.token,
         });
+
+        console.log('[MasterAdmin] sendInvitationEmail result:', emailRes);
 
         if (emailRes.success) {
           emailSent = true;
@@ -221,7 +252,10 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
         emailError,
       });
     } catch (err: any) {
-      showNotice('error', 'Provisioning error: ' + (err?.message || err));
+      const errText = 'Provisioning error: ' + (err?.message || err);
+      console.error('[MasterAdmin] Unhandled exception in handleCreateTenant:', err);
+      setCreateModalError(errText);
+      showNotice('error', errText);
     } finally {
       setIsCreating(false);
     }
@@ -354,7 +388,10 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
 
         <div className="flex items-center gap-2.5">
           <button
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => {
+              setCreateModalError(null);
+              setShowCreateModal(true);
+            }}
             className="px-4 py-2 bg-gradient-to-r from-purple-600 to-[#b89758] hover:from-purple-500 hover:to-[#cbb075] text-white font-medium text-xs rounded-xl shadow-md flex items-center gap-2 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -796,10 +833,21 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                 />
               </div>
 
+              {/* Modal-scoped inline error alert */}
+              {createModalError && (
+                <div className="p-3 rounded-xl bg-rose-950/90 border border-rose-500/50 text-rose-200 text-xs flex items-center gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{createModalError}</span>
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
                 <button
                   type="button"
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => {
+                    setCreateModalError(null);
+                    setShowCreateModal(false);
+                  }}
                   className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl font-medium transition-colors cursor-pointer"
                 >
                   Cancel
