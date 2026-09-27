@@ -45,34 +45,34 @@ export const BridalPackages: React.FC<BridalPackagesProps> = ({ onAskPackage }) 
             >
               {/* Blooming decorative outline frames on hover / active / click */}
               <div
-                className={`absolute -inset-2 rounded-3xl border rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-hover:scale-102 group-hover:rotate-2 transition-all duration-500 pointer-events-none ${
+                className={`absolute -inset-2 rounded-3xl border rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-active:opacity-100 group-focus-within:opacity-100 group-hover:scale-102 group-active:scale-102 group-hover:rotate-2 group-active:rotate-2 transition-all duration-500 pointer-events-none ${
                   pkg.isRecommended
                     ? 'border-[#b89758]/70 dark:border-[#fed488]/70'
                     : 'border-[#c48496]/70 dark:border-[#b89758]/60'
                 }`}
               />
               <div
-                className={`absolute -inset-2 rounded-3xl border -rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-hover:scale-103 group-hover:-rotate-2 transition-all duration-500 pointer-events-none ${
+                className={`absolute -inset-2 rounded-3xl border -rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-active:opacity-100 group-focus-within:opacity-100 group-hover:scale-103 group-active:scale-103 group-hover:-rotate-2 group-active:-rotate-2 transition-all duration-500 pointer-events-none ${
                   pkg.isRecommended
                     ? 'border-[#fed488]/50 dark:border-[#b89758]/50'
                     : 'border-[#b89758]/50 dark:border-[#fed488]/40'
                 }`}
               />
-              {/* Ambient radial aura glow on hover */}
+              {/* Ambient radial aura glow on hover / tap */}
               <div
-                className={`absolute inset-0 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none ${
+                className={`absolute inset-0 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-500 pointer-events-none ${
                   pkg.isRecommended
                     ? 'bg-gradient-to-tr from-[#b89758]/25 via-[#fed488]/20 to-[#6c2e3e]/20'
                     : 'bg-gradient-to-tr from-[#6c2e3e]/15 via-[#dca8b5]/15 to-[#b89758]/15'
                 }`}
               />
               {/* Corner celestial sparkle stars */}
-              <div className="absolute -top-3 -right-3 text-[#6c2e3e] dark:text-[#fed488] opacity-0 group-hover:opacity-100 scale-50 group-hover:scale-110 group-hover:rotate-45 transition-all duration-500 pointer-events-none z-20">
+              <div className="absolute -top-3 -right-3 text-[#6c2e3e] dark:text-[#fed488] opacity-0 group-hover:opacity-100 group-active:opacity-100 scale-50 group-hover:scale-110 group-active:scale-110 group-hover:rotate-45 group-active:rotate-45 transition-all duration-500 pointer-events-none z-20">
                 <svg className="w-5 h-5 drop-shadow-[0_0_6px_rgba(254,212,136,0.6)]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z" />
                 </svg>
               </div>
-              <div className="absolute -bottom-2.5 -left-2.5 text-[#c48496] dark:text-[#b89758] opacity-0 group-hover:opacity-100 scale-50 group-hover:scale-100 group-hover:-rotate-45 transition-all duration-500 pointer-events-none z-20">
+              <div className="absolute -bottom-2.5 -left-2.5 text-[#c48496] dark:text-[#b89758] opacity-0 group-hover:opacity-100 group-active:opacity-100 scale-50 group-hover:scale-100 group-active:scale-100 group-hover:-rotate-45 group-active:-rotate-45 transition-all duration-500 pointer-events-none z-20">
                 <svg className="w-4 h-4 drop-shadow-[0_0_6px_rgba(254,212,136,0.4)]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z" />
                 </svg>

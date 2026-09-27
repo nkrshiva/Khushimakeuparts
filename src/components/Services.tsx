@@ -51,20 +51,20 @@ export const Services: React.FC<ServicesProps> = ({ onBookService }) => {
             <div
               key={item.id}
               onClick={() => setSelectedService(item)}
-              className="relative group p-5 rounded-3xl bg-white dark:bg-[#1f1217] shadow-xs hover:shadow-xl hover:-translate-y-2 transition-all duration-500 ease-out flex flex-col justify-between border border-[#c48496] dark:border-[#b89758]/45 cursor-pointer"
+              className="relative group p-5 rounded-3xl bg-white dark:bg-[#1f1217] shadow-xs hover:shadow-xl hover:-translate-y-2 active:scale-[0.98] transition-all duration-500 ease-out flex flex-col justify-between border border-[#c48496] dark:border-[#b89758]/45 cursor-pointer"
             >
               {/* Blooming decorative outline frames on hover / active / click */}
-              <div className="absolute -inset-1.5 rounded-3xl border border-[#c48496]/80 dark:border-[#b89758]/60 rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-hover:scale-102 group-hover:rotate-2 transition-all duration-500 pointer-events-none" />
-              <div className="absolute -inset-1.5 rounded-3xl border border-[#b89758]/50 dark:border-[#fed488]/40 -rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-hover:scale-103 group-hover:-rotate-2 transition-all duration-500 pointer-events-none" />
-              {/* Ambient radial aura glow on hover */}
-              <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-[#6c2e3e]/15 via-[#dca8b5]/15 to-[#b89758]/15 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+              <div className="absolute -inset-1.5 rounded-3xl border border-[#c48496]/80 dark:border-[#b89758]/60 rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-active:opacity-100 group-focus-within:opacity-100 group-hover:scale-102 group-active:scale-102 group-hover:rotate-2 group-active:rotate-2 transition-all duration-500 pointer-events-none" />
+              <div className="absolute -inset-1.5 rounded-3xl border border-[#b89758]/50 dark:border-[#fed488]/40 -rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-active:opacity-100 group-focus-within:opacity-100 group-hover:scale-103 group-active:scale-103 group-hover:-rotate-2 group-active:-rotate-2 transition-all duration-500 pointer-events-none" />
+              {/* Ambient radial aura glow on hover / tap */}
+              <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-[#6c2e3e]/15 via-[#dca8b5]/15 to-[#b89758]/15 blur-xl opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-500 pointer-events-none" />
               {/* Corner celestial sparkle stars */}
-              <div className="absolute -top-2.5 -right-2.5 text-[#6c2e3e] dark:text-[#fed488] opacity-0 group-hover:opacity-100 scale-50 group-hover:scale-110 group-hover:rotate-45 transition-all duration-500 pointer-events-none z-20">
+              <div className="absolute -top-2.5 -right-2.5 text-[#6c2e3e] dark:text-[#fed488] opacity-0 group-hover:opacity-100 group-active:opacity-100 scale-50 group-hover:scale-110 group-active:scale-110 group-hover:rotate-45 group-active:rotate-45 transition-all duration-500 pointer-events-none z-20">
                 <svg className="w-5 h-5 drop-shadow-[0_0_6px_rgba(254,212,136,0.5)]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z" />
                 </svg>
               </div>
-              <div className="absolute -bottom-2 -left-2 text-[#c48496] dark:text-[#b89758] opacity-0 group-hover:opacity-100 scale-50 group-hover:scale-100 group-hover:-rotate-45 transition-all duration-500 pointer-events-none z-20">
+              <div className="absolute -bottom-2 -left-2 text-[#c48496] dark:text-[#b89758] opacity-0 group-hover:opacity-100 group-active:opacity-100 scale-50 group-hover:scale-100 group-active:scale-100 group-hover:-rotate-45 group-active:-rotate-45 transition-all duration-500 pointer-events-none z-20">
                 <svg className="w-4 h-4 drop-shadow-[0_0_6px_rgba(254,212,136,0.3)]" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z" />
                 </svg>

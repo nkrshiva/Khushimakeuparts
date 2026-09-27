@@ -105,17 +105,17 @@ export const VideoShowcase: React.FC = () => {
     return (
       <div key={`${video.id || idx}-${idx}`} className="relative group/vcard">
         {/* Blooming surrounding outline frames on hover / active / click */}
-        <div className={`absolute -inset-1.5 ${cornerStyle} border border-[#dca8b5]/70 dark:border-[#b89758]/60 rotate-1 scale-95 opacity-0 group-hover/vcard:opacity-100 group-hover/vcard:scale-102 group-hover/vcard:rotate-2 transition-all duration-500 pointer-events-none`} />
-        <div className={`absolute -inset-1.5 ${cornerStyle} border border-[#c98a9c]/50 dark:border-[#fed488]/40 -rotate-1 scale-95 opacity-0 group-hover/vcard:opacity-100 group-hover/vcard:scale-103 group-hover/vcard:-rotate-2 transition-all duration-500 pointer-events-none`} />
-        {/* Ambient radial aura glow on hover */}
-        <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-[#6c2e3e]/20 via-[#dca8b5]/15 to-[#b89758]/20 blur-xl opacity-0 group-hover/vcard:opacity-100 transition-opacity duration-500 pointer-events-none" />
+        <div className={`absolute -inset-1.5 ${cornerStyle} border border-[#dca8b5]/70 dark:border-[#b89758]/60 rotate-1 scale-95 opacity-0 group-hover/vcard:opacity-100 group-active/vcard:opacity-100 group-focus-within/vcard:opacity-100 group-hover/vcard:scale-102 group-active/vcard:scale-102 group-hover/vcard:rotate-2 group-active/vcard:rotate-2 transition-all duration-500 pointer-events-none`} />
+        <div className={`absolute -inset-1.5 ${cornerStyle} border border-[#c98a9c]/50 dark:border-[#fed488]/40 -rotate-1 scale-95 opacity-0 group-hover/vcard:opacity-100 group-active/vcard:opacity-100 group-focus-within/vcard:opacity-100 group-hover/vcard:scale-103 group-active/vcard:scale-103 group-hover/vcard:-rotate-2 group-active/vcard:-rotate-2 transition-all duration-500 pointer-events-none`} />
+        {/* Ambient radial aura glow on hover / tap */}
+        <div className="absolute inset-0 rounded-3xl bg-gradient-to-tr from-[#6c2e3e]/20 via-[#dca8b5]/15 to-[#b89758]/20 blur-xl opacity-0 group-hover/vcard:opacity-100 group-active/vcard:opacity-100 transition-opacity duration-500 pointer-events-none" />
         {/* Corner celestial sparkle stars */}
-        <div className="absolute -top-2.5 -right-2.5 text-[#6c2e3e] dark:text-[#fed488] opacity-0 group-hover/vcard:opacity-100 scale-50 group-hover/vcard:scale-110 group-hover/vcard:rotate-45 transition-all duration-500 pointer-events-none z-20">
+        <div className="absolute -top-2.5 -right-2.5 text-[#6c2e3e] dark:text-[#fed488] opacity-0 group-hover/vcard:opacity-100 group-active/vcard:opacity-100 scale-50 group-hover/vcard:scale-110 group-active/vcard:scale-110 group-hover/vcard:rotate-45 group-active/vcard:rotate-45 transition-all duration-500 pointer-events-none z-20">
           <svg className="w-5 h-5 drop-shadow-[0_0_6px_rgba(254,212,136,0.6)]" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z" />
           </svg>
         </div>
-        <div className="absolute -bottom-2 -left-2 text-[#dca8b5] dark:text-[#b89758] opacity-0 group-hover/vcard:opacity-100 scale-50 group-hover/vcard:scale-100 group-hover/vcard:-rotate-45 transition-all duration-500 pointer-events-none z-20">
+        <div className="absolute -bottom-2 -left-2 text-[#dca8b5] dark:text-[#b89758] opacity-0 group-hover/vcard:opacity-100 group-active/vcard:opacity-100 scale-50 group-hover/vcard:scale-100 group-active/vcard:scale-100 group-hover/vcard:-rotate-45 group-active/vcard:-rotate-45 transition-all duration-500 pointer-events-none z-20">
           <svg className="w-4 h-4 drop-shadow-[0_0_6px_rgba(254,212,136,0.4)]" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z" />
           </svg>

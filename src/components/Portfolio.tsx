@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Eye, ArrowRight } from 'lucide-react';
 import { useSiteContent } from '../context/ContentContext';
 import { PortfolioModel } from '../data/portfolioData';
 import { PortfolioLightbox } from './PortfolioLightbox';
-import { SketchWavyLine, SketchLipstick } from './HandDrawnIllustrations';
+import { SketchWavyLine, SketchLipstick, SketchStar } from './HandDrawnIllustrations';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface OpenGallery {
@@ -16,40 +16,54 @@ const ModelCard: React.FC<{
   model: PortfolioModel;
   onOpen: () => void;
 }> = ({ model, onOpen }) => (
-  <div
-    role="button"
-    tabIndex={0}
-    onClick={onOpen}
-    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
-    className="group relative rounded-2xl lg:rounded-3xl overflow-hidden bg-[#1a0e14] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#b89758] aspect-[3/4] shadow-md hover:shadow-2xl border border-[#b89758]/25 hover:border-[#fed488] transition-all duration-500 ease-out hover:-translate-y-2"
-    aria-label={`View ${model.name}'s gallery`}
-  >
-    {/* Thumbnail */}
-    <img
-      src={model.thumbnail}
-      alt={model.name}
-      className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-108"
-      loading="lazy"
-    />
+  <div className="relative group">
+    {/* Decorative blooming outline frames for desktop hover & mobile tap */}
+    <div className="absolute -inset-1 rounded-2xl lg:rounded-3xl border border-[#c48496]/70 dark:border-[#b89758]/50 rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-active:opacity-100 group-focus-within:opacity-100 group-hover:scale-102 group-active:scale-102 group-hover:rotate-2 group-active:rotate-2 transition-all duration-500 pointer-events-none" />
+    <div className="absolute -inset-1 rounded-2xl lg:rounded-3xl border border-[#b89758]/50 dark:border-[#fed488]/40 -rotate-1 scale-95 opacity-0 group-hover:opacity-100 group-active:opacity-100 group-focus-within:opacity-100 group-hover:scale-103 group-active:scale-103 group-hover:-rotate-2 group-active:-rotate-2 transition-all duration-500 pointer-events-none" />
+    
+    {/* Ambient radial aura glow */}
+    <div className="absolute inset-0 rounded-2xl lg:rounded-3xl bg-gradient-to-tr from-[#6c2e3e]/20 via-[#dca8b5]/15 to-[#b89758]/20 blur-lg opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
-    {/* Gradient overlay */}
-    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent transition-opacity duration-300 group-hover:opacity-90" />
-
-    {/* Hover eye icon */}
-    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 ease-out">
-      <div className="p-3 lg:p-4 rounded-full bg-white/20 backdrop-blur-md border border-white/30 transform scale-75 group-hover:scale-100 transition-transform duration-300 shadow-xl">
-        <Eye className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
-      </div>
+    {/* Corner celestial sparkle star */}
+    <div className="absolute -top-2 -right-2 text-[#b89758] dark:text-[#fed488] opacity-0 group-hover:opacity-100 group-active:opacity-100 scale-50 group-hover:scale-110 group-active:scale-110 group-hover:rotate-45 group-active:rotate-45 transition-all duration-500 pointer-events-none z-20">
+      <SketchStar className="w-4 h-4 text-[#b89758] dark:text-[#fed488]" />
     </div>
 
-    {/* Bottom label */}
-    <div className="absolute bottom-0 inset-x-0 p-3.5 lg:p-5 transform group-hover:-translate-y-1 transition-transform duration-300">
-      <p className="font-['Playfair_Display'] text-sm sm:text-base lg:text-lg text-white font-medium leading-tight">
-        {model.name}
-      </p>
-      <span className="inline-flex items-center gap-1 font-['Plus_Jakarta_Sans'] text-[10px] lg:text-xs text-[#fed488] mt-0.5 group-hover:gap-2 transition-all duration-300 font-semibold">
-        View Gallery <ArrowRight className="w-2.5 h-2.5 lg:w-3 lg:h-3 transition-transform duration-300 group-hover:translate-x-1" />
-      </span>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
+      className="relative rounded-2xl lg:rounded-3xl overflow-hidden bg-[#1a0e14] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#b89758] aspect-[3/4] shadow-md hover:shadow-2xl border border-[#b89758]/25 hover:border-[#fed488] transition-all duration-500 ease-out hover:-translate-y-2 active:scale-[0.98]"
+      aria-label={`View ${model.name}'s gallery`}
+    >
+      {/* Thumbnail */}
+      <img
+        src={model.thumbnail}
+        alt={model.name}
+        className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-108"
+        loading="lazy"
+      />
+
+      {/* Gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent transition-opacity duration-300 group-hover:opacity-90" />
+
+      {/* Hover/Tap eye icon */}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-all duration-300 ease-out pointer-events-none">
+        <div className="p-3 lg:p-4 rounded-full bg-white/20 backdrop-blur-md border border-white/30 transform scale-75 group-hover:scale-100 group-active:scale-100 transition-transform duration-300 shadow-xl">
+          <Eye className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
+        </div>
+      </div>
+
+      {/* Bottom label */}
+      <div className="absolute bottom-0 inset-x-0 p-3.5 lg:p-5 transform group-hover:-translate-y-1 group-active:-translate-y-1 transition-transform duration-300 pointer-events-none">
+        <p className="font-['Playfair_Display'] text-sm sm:text-base lg:text-lg text-white font-medium leading-tight">
+          {model.name}
+        </p>
+        <span className="inline-flex items-center gap-1 font-['Plus_Jakarta_Sans'] text-[10px] lg:text-xs text-[#fed488] mt-0.5 group-hover:gap-2 group-active:gap-2 transition-all duration-300 font-semibold">
+          View Gallery <ArrowRight className="w-2.5 h-2.5 lg:w-3 lg:h-3 transition-transform duration-300 group-hover:translate-x-1 group-active:translate-x-1" />
+        </span>
+      </div>
     </div>
   </div>
 );
@@ -111,6 +125,18 @@ export const Portfolio: React.FC = () => {
     touchStartX.current = null;
   };
 
+  // Preload model thumbnails across all categories
+  useEffect(() => {
+    PORTFOLIO_CATEGORIES.forEach((cat) => {
+      cat.models.forEach((m) => {
+        if (m.thumbnail) {
+          const img = new Image();
+          img.src = m.thumbnail;
+        }
+      });
+    });
+  }, [PORTFOLIO_CATEGORIES]);
+
   // ── Keyboard navigation (section-level) ───────────────────────
   useEffect(() => {
     if (openGallery) return; // let the lightbox handle keys
@@ -127,7 +153,7 @@ export const Portfolio: React.FC = () => {
   return (
     <section
       id="lookbook-portfolio"
-      className="w-full bg-[#f7ecee]/40 dark:bg-[#0e0810]/40 backdrop-blur-xs border-y border-[#dca8b5]/40 dark:border-[#b89758]/25 transition-colors duration-300 overflow-hidden text-[#25181c] dark:text-[#fcecee]"
+      className="w-full bg-[#f7ecee]/40 dark:bg-[#0e0810]/40 backdrop-blur-xs border-y border-[#dca8b5]/40 dark:border-[#b89758]/25 transition-colors duration-300 overflow-hidden text-[#25181c] dark:text-[#fcecee] touch-pan-y"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >

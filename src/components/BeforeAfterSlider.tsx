@@ -57,20 +57,20 @@ const slideVariants: Variants = {
     scale: 1,
     zIndex: 1,
     transition: {
-      x: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
-      opacity: { duration: 0.4, ease: 'easeOut' },
-      scale: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
+      x: { duration: 0.38, ease: [0.25, 1, 0.5, 1] },
+      opacity: { duration: 0.32, ease: 'easeOut' },
+      scale: { duration: 0.38, ease: [0.25, 1, 0.5, 1] },
     },
   },
   exit: (dir: number) => ({
     x: dir > 0 ? '-35%' : dir < 0 ? '35%' : '0%',
-    opacity: 0.2,
+    opacity: 0,
     scale: 0.98,
     zIndex: 0,
     transition: {
-      x: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
-      opacity: { duration: 0.35, ease: 'easeIn' },
-      scale: { duration: 0.45, ease: [0.25, 1, 0.5, 1] },
+      x: { duration: 0.38, ease: [0.25, 1, 0.5, 1] },
+      opacity: { duration: 0.3, ease: 'easeIn' },
+      scale: { duration: 0.38, ease: [0.25, 1, 0.5, 1] },
     },
   }),
 };
@@ -86,7 +86,29 @@ export const BeforeAfterSlider: React.FC = () => {
   const [sliderPosition, setSliderPosition] = useState(50); // percentage 0 to 100
   const [containerWidth, setContainerWidth] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isNavigating, setIsNavigating] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const navLockTimeout = useRef<number | null>(null);
+
+  // Preload both before and after images for all looks to prevent flash/blank frames
+  useEffect(() => {
+    gallery.forEach((item) => {
+      if (item.beforeImageUrl) {
+        const img1 = new Image();
+        img1.src = item.beforeImageUrl;
+      }
+      if (item.afterImageUrl) {
+        const img2 = new Image();
+        img2.src = item.afterImageUrl;
+      }
+    });
+  }, [gallery]);
+
+  useEffect(() => {
+    return () => {
+      if (navLockTimeout.current) clearTimeout(navLockTimeout.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -104,15 +126,23 @@ export const BeforeAfterSlider: React.FC = () => {
   const activeItem: BeforeAfterItem = gallery[activeIndex] || gallery[0];
 
   const handlePrevLook = () => {
+    if (isNavigating) return;
+    setIsNavigating(true);
     setDirection(-1);
     setActiveIndex((prev) => (prev > 0 ? prev - 1 : gallery.length - 1));
     setSliderPosition(50);
+    if (navLockTimeout.current) clearTimeout(navLockTimeout.current);
+    navLockTimeout.current = window.setTimeout(() => setIsNavigating(false), 380);
   };
 
   const handleNextLook = () => {
+    if (isNavigating) return;
+    setIsNavigating(true);
     setDirection(1);
     setActiveIndex((prev) => (prev < gallery.length - 1 ? prev + 1 : 0));
     setSliderPosition(50);
+    if (navLockTimeout.current) clearTimeout(navLockTimeout.current);
+    navLockTimeout.current = window.setTimeout(() => setIsNavigating(false), 380);
   };
 
   const handleMove = useCallback((clientX: number) => {
@@ -123,11 +153,22 @@ export const BeforeAfterSlider: React.FC = () => {
     setSliderPosition(percentage);
   }, []);
 
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    setIsDragging(true);
+    if (e.touches.length > 0) {
+      handleMove(e.touches[0].clientX);
+    }
+  }, [handleMove]);
+
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length > 0) {
       handleMove(e.touches[0].clientX);
     }
   }, [handleMove]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDragging) return;
@@ -237,8 +278,9 @@ export const BeforeAfterSlider: React.FC = () => {
             <button
               type="button"
               onClick={handlePrevLook}
+              disabled={isNavigating}
               aria-label="Previous Transformation"
-              className="absolute left-0 sm:left-1 lg:-left-2 top-1/2 -translate-y-1/2 z-40 p-2.5 sm:p-3.5 rounded-full bg-white dark:bg-[#1d0e15] hover:bg-[#6c2e3e] text-[#6c2e3e] hover:text-white dark:text-[#fed488] dark:hover:text-white border border-[#c48496] dark:border-[#b89758]/50 shadow-xl hover:shadow-2xl hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center"
+              className="absolute left-0 sm:left-1 lg:-left-2 top-1/2 -translate-y-1/2 z-40 p-2.5 sm:p-3.5 rounded-full bg-white dark:bg-[#1d0e15] hover:bg-[#6c2e3e] text-[#6c2e3e] hover:text-white dark:text-[#fed488] dark:hover:text-white border border-[#c48496] dark:border-[#b89758]/50 shadow-xl hover:shadow-2xl hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center disabled:opacity-60"
               title="Previous Look"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -250,8 +292,9 @@ export const BeforeAfterSlider: React.FC = () => {
             <button
               type="button"
               onClick={handleNextLook}
+              disabled={isNavigating}
               aria-label="Next Transformation"
-              className="absolute right-0 sm:right-1 lg:-right-2 top-1/2 -translate-y-1/2 z-40 p-2.5 sm:p-3.5 rounded-full bg-white dark:bg-[#1d0e15] hover:bg-[#6c2e3e] text-[#6c2e3e] hover:text-white dark:text-[#fed488] dark:hover:text-white border border-[#c48496] dark:border-[#b89758]/50 shadow-xl hover:shadow-2xl hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center"
+              className="absolute right-0 sm:right-1 lg:-right-2 top-1/2 -translate-y-1/2 z-40 p-2.5 sm:p-3.5 rounded-full bg-white dark:bg-[#1d0e15] hover:bg-[#6c2e3e] text-[#6c2e3e] hover:text-white dark:text-[#fed488] dark:hover:text-white border border-[#c48496] dark:border-[#b89758]/50 shadow-xl hover:shadow-2xl hover:scale-110 active:scale-95 transition-all cursor-pointer flex items-center justify-center disabled:opacity-60"
               title="Next Look"
             >
               <ChevronRight className="w-5 h-5" />
@@ -260,17 +303,17 @@ export const BeforeAfterSlider: React.FC = () => {
 
           {/* Comparison Slider Card with Decorative Framing Rings */}
           <div className="relative max-w-3xl mx-auto group">
-            {/* Decorative Offset Frame 1 (-1deg rotation) */}
-            <div className="absolute inset-0 rounded-3xl border border-[#c48496]/80 dark:border-[#b89758]/30 -rotate-1 scale-101 pointer-events-none transition-transform duration-700 group-hover:-rotate-2" />
+            {/* Decorative Offset Frame 1 (-1deg rotation) with mobile active response */}
+            <div className="absolute inset-0 rounded-3xl border border-[#c48496]/80 dark:border-[#b89758]/30 -rotate-1 scale-101 pointer-events-none transition-transform duration-700 group-hover:-rotate-2 group-active:-rotate-2 group-focus-within:-rotate-2" />
             
-            {/* Decorative Offset Frame 2 (+1deg rotation) */}
-            <div className="absolute inset-0 rounded-3xl border border-[#b89758]/50 dark:border-[#b89758]/20 rotate-1 scale-102 pointer-events-none transition-transform duration-700 group-hover:rotate-2" />
+            {/* Decorative Offset Frame 2 (+1deg rotation) with mobile active response */}
+            <div className="absolute inset-0 rounded-3xl border border-[#b89758]/50 dark:border-[#b89758]/20 rotate-1 scale-102 pointer-events-none transition-transform duration-700 group-hover:rotate-2 group-active:rotate-2 group-focus-within:rotate-2" />
 
             {/* Corner Sparkle Stars */}
-            <div className="absolute -top-3 -right-3 text-[#b89758] dark:text-[#fed488] z-20 transition-transform duration-500 group-hover:scale-125 group-hover:rotate-45">
+            <div className="absolute -top-3 -right-3 text-[#b89758] dark:text-[#fed488] z-20 transition-transform duration-500 group-hover:scale-125 group-hover:rotate-45 group-active:scale-125 group-active:rotate-45">
               <SketchStar className="w-6 h-6 text-[#b89758] dark:text-[#fed488]" />
             </div>
-            <div className="absolute -bottom-3 -left-3 text-[#b89758]/80 dark:text-[#fed488]/80 z-20 transition-transform duration-500 group-hover:scale-125 group-hover:-rotate-45">
+            <div className="absolute -bottom-3 -left-3 text-[#b89758]/80 dark:text-[#fed488]/80 z-20 transition-transform duration-500 group-hover:scale-125 group-hover:-rotate-45 group-active:scale-125 group-active:-rotate-45">
               <SketchStar className="w-5 h-5 text-[#b89758] dark:text-[#fed488]" />
             </div>
 
@@ -282,8 +325,11 @@ export const BeforeAfterSlider: React.FC = () => {
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
                 onMouseMove={handleMouseMove}
+                onTouchStart={handleTouchStart}
                 onTouchMove={handleTouchMove}
-                className="relative w-full aspect-[4/5] sm:aspect-[16/10] rounded-2xl overflow-hidden cursor-ew-resize select-none bg-neutral-900"
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchEnd}
+                className="relative w-full aspect-[4/5] sm:aspect-[16/10] rounded-2xl overflow-hidden cursor-ew-resize select-none bg-neutral-900 touch-none"
                 style={{ containerType: 'inline-size' }}
               >
                 {/* 1. Continuous Animated Look Slides (Seamless cross-slide & fade, zero black/white flash) */}
@@ -333,7 +379,7 @@ export const BeforeAfterSlider: React.FC = () => {
                   <div className="w-0.5 h-full bg-gradient-to-b from-[#fed488] via-[#b89758] to-[#fed488] shadow-[0_0_12px_rgba(254,212,136,0.8)]" />
 
                   {/* Circular Golden Drag Knob */}
-                  <div className="absolute w-10 h-10 rounded-full bg-gradient-to-tr from-[#6c2e3e] to-[#b89758] border-2 border-[#fed488] shadow-2xl flex items-center justify-center text-white cursor-ew-resize pointer-events-auto transform active:scale-95 transition-transform">
+                  <div className="absolute w-10 h-10 rounded-full bg-gradient-to-tr from-[#6c2e3e] to-[#b89758] border-2 border-[#fed488] shadow-2xl flex items-center justify-center text-white cursor-ew-resize pointer-events-auto transform active:scale-95 transition-transform touch-none select-none">
                     <MoveHorizontal className="w-4 h-4 text-[#fed488]" />
                   </div>
                 </div>
