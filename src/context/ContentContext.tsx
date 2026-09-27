@@ -23,8 +23,10 @@ import {
   DayOfWeek,
   DEFAULT_MAIN_CLIENT,
   TenantInvitation,
+  isKhushiTenantId,
 } from '../types';
 import { ARCHETYPE_PRESETS, DEFAULT_BUSINESS_HOURS } from '../data/archetypePresets';
+import { tenantResolutionService, TenantResolutionResult } from '../services/tenant';
 
 interface ContentContextType {
   content: SiteContent;
@@ -35,6 +37,8 @@ interface ContentContextType {
   isFirebaseConnected: boolean;
   activeClientId: string;
   clientsList: ClientTenantSummary[];
+  tenantResolution: TenantResolutionResult;
+  isUnknownTenant: boolean;
   setActiveClientId: (id: string) => void;
   saveContent: (newContent: SiteContent, targetClientId?: string) => Promise<{ success: boolean; error?: string }>;
   createClientSite: (tenantData: {
@@ -113,54 +117,15 @@ const getTenantEnqsKey = (clientId: string) => {
   return `tenant_enquiries_${clientId}`;
 };
 
-const detectInitialClientId = (): string => {
+const getInitialRegistry = (): ClientTenantSummary[] => {
   try {
-    if (typeof window === 'undefined') return 'khushi';
-
-    // 1. URL search parameter: ?client=pooja-makeovers (sanitize trailing slash)
-    const params = new URLSearchParams(window.location.search);
-    const rawClientParam = params.get('client')?.trim().toLowerCase();
-    const clientParam = rawClientParam ? rawClientParam.replace(/\/+$/, '') : null;
-    if (clientParam) return clientParam;
-
-    // 2. Hash-based client parameter fallback: e.g. /#myadminpanel?client=pooja-makeovers
-    const hash = window.location.hash;
-    const hashParamMatch = hash.match(/[?&]client=([a-z0-9_-]+)/i);
-    if (hashParamMatch && hashParamMatch[1]) {
-      return hashParamMatch[1].toLowerCase().replace(/\/+$/, '');
+    const cached = localStorage.getItem(PLATFORM_REGISTRY_KEY) || localStorage.getItem('khushi_clients_registry');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
-
-    // 3. Subdomain auto-detection (e.g. pooja.ateliersaas.com or pooja.localhost:3000)
-    const hostname = window.location.hostname.toLowerCase();
-    if (hostname && !hostname.startsWith('127.') && hostname !== 'localhost') {
-      const parts = hostname.split('.');
-      // Check for subdomains like pooja.domain.com or pooja.vercel.app
-      if (parts.length >= 3 && parts[0] !== 'www') {
-        return parts[0];
-      }
-
-      // Check for custom domains matching registered clients
-      try {
-        const cachedRegistry = localStorage.getItem(PLATFORM_REGISTRY_KEY) || localStorage.getItem('khushi_clients_registry');
-        if (cachedRegistry) {
-          const parsedClients: ClientTenantSummary[] = JSON.parse(cachedRegistry);
-          const matched = parsedClients.find(
-            (c) => c.customDomain && c.customDomain.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '') === hostname
-          );
-          if (matched) return matched.id;
-        }
-      } catch {}
-    }
-
-    // 4. Hash-based client route: #/c/pooja-makeovers
-    const match = hash.match(/#\/c\/([a-z0-9_-]+)/i);
-    if (match && match[1]) return match[1].toLowerCase().replace(/\/+$/, '');
-
-    // 5. Stored preference
-    const stored = (localStorage.getItem(PLATFORM_ACTIVE_CLIENT_KEY) || localStorage.getItem('khushi_active_client_id'))?.trim().toLowerCase().replace(/\/+$/, '');
-    if (stored) return stored;
   } catch {}
-  return 'khushi';
+  return [DEFAULT_MAIN_CLIENT];
 };
 
 const ContentContext = createContext<ContentContextType | undefined>(undefined);
@@ -171,18 +136,19 @@ export { mergeWithDefaults, createTailoredSiteContent };
 
 export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { role, assignedClientId } = useTenant();
-  const [activeClientId, setActiveClientIdState] = useState<string>(detectInitialClientId);
 
   // Clients registry list
-  const [clientsList, setClientsList] = useState<ClientTenantSummary[]>(() => {
-    try {
-      const cached = localStorage.getItem(PLATFORM_REGISTRY_KEY) || localStorage.getItem('khushi_clients_registry');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return [DEFAULT_MAIN_CLIENT];
+  const [clientsList, setClientsList] = useState<ClientTenantSummary[]>(getInitialRegistry);
+
+  // Authoritative Hostname Tenant Resolution
+  const [tenantResolution, setTenantResolution] = useState<TenantResolutionResult>(() => {
+    return tenantResolutionService.resolveTenantFromHost({
+      clientsRegistry: getInitialRegistry(),
+    });
+  });
+
+  const [activeClientId, setActiveClientIdState] = useState<string>(() => {
+    return tenantResolution.tenantId || DEFAULT_MAIN_CLIENT.id;
   });
 
   // Helper to migrate legacy localStorage namespaces to neutral keys
@@ -306,15 +272,27 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         try {
           localStorage.setItem(PLATFORM_REGISTRY_KEY, JSON.stringify(clients));
         } catch {}
+
+        // Re-resolve tenant from host with the updated clients list
+        const resolved = tenantResolutionService.resolveTenantFromHost({
+          clientsRegistry: clients,
+        });
+        setTenantResolution(resolved);
+
+        if (resolved.tenantId && resolved.tenantId !== activeClientId) {
+          if (role !== 'client') {
+            setActiveClientIdState(resolved.tenantId);
+          }
+        }
       },
       (err) => {
         console.warn('Clients registry sync notice:', err?.message || err);
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [activeClientId, role]);
 
-  // Sync active client ID dynamically when URL query param or hash changes (for public and developer)
+  // Sync active client ID dynamically when URL query param or hash changes (for development and navigation)
   useEffect(() => {
     const handleUrlChange = () => {
       // Client users cannot switch tenant context via URL
@@ -324,9 +302,14 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         return;
       }
-      const detected = detectInitialClientId();
-      if (detected && detected !== activeClientId) {
-        setActiveClientIdState(detected);
+
+      const resolved = tenantResolutionService.resolveTenantFromHost({
+        clientsRegistry: clientsList,
+      });
+      setTenantResolution(resolved);
+
+      if (resolved.tenantId && resolved.tenantId !== activeClientId) {
+        setActiveClientIdState(resolved.tenantId);
       }
     };
     window.addEventListener('popstate', handleUrlChange);
@@ -335,7 +318,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('hashchange', handleUrlChange);
     };
-  }, [activeClientId, role, assignedClientId]);
+  }, [activeClientId, role, assignedClientId, clientsList]);
 
   // 2. Real-time sync for active client's content
   useEffect(() => {
@@ -349,7 +332,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const clientMeta = clientsList.find((c) => c.id === activeClientId);
         if (clientMeta) {
           setContent(createTailoredSiteContent(clientMeta));
-        } else if (activeClientId === 'khushi') {
+        } else if (isKhushiTenantId(activeClientId)) {
           setContent(DEFAULT_SITE_CONTENT);
         }
       }
@@ -475,10 +458,12 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       localStorage.setItem(PLATFORM_ACTIVE_CLIENT_KEY, cleanId);
 
-      // Cleanly reflect in URL query parameter without page reload
-      const url = new URL(window.location.href);
-      url.searchParams.set('client', cleanId);
-      window.history.replaceState(null, '', url.toString());
+      // Only update ?client= in development or platform mode, not on strict tenant production domains
+      if (tenantResolution.source === 'development' || tenantResolution.isPlatform || role === 'developer') {
+        const url = new URL(window.location.href);
+        url.searchParams.set('client', cleanId);
+        window.history.replaceState(null, '', url.toString());
+      }
     } catch {}
   };
 
@@ -911,6 +896,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  const isUnknownTenant = tenantResolution.isUnknownTenant;
+
   const value = useMemo(
     () => ({
       content,
@@ -921,6 +908,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isFirebaseConnected,
       activeClientId,
       clientsList,
+      tenantResolution,
+      isUnknownTenant,
       setActiveClientId,
       saveContent,
       createClientSite,
@@ -957,6 +946,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       isFirebaseConnected,
       activeClientId,
       clientsList,
+      tenantResolution,
+      isUnknownTenant,
       isModuleEnabled,
     ]
   );

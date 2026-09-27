@@ -174,9 +174,18 @@ export const DEFAULT_MAIN_CLIENT: ClientTenantSummary = {
   city: 'Siwan, Bihar',
   phone: '+91 91621 43273',
   instagram: '@khushimakeuparts',
+  customDomain: 'khushimakeupart.vercel.app',
   archetype: 'solo_mua',
   status: 'active',
   active: true,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: new Date().toISOString(),
+};
+
+/**
+ * Helper to identify whether a tenant ID represents the primary Khushi Makeup Arts tenant
+ * across both legacy ('khushi') and canonical ('khushi-makeup-arts') identifiers.
+ */
+export const isKhushiTenantId = (id?: string | null): boolean => {
+  return id === 'khushi' || id === 'khushi-makeup-arts';
 };

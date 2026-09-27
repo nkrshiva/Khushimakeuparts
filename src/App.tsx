@@ -29,6 +29,7 @@ import { OfferPopupModal } from './components/OfferPopupModal';
 import { DEFAULT_SECTIONS_VISIBILITY } from './data/siteContent';
 import { Instagram } from 'lucide-react';
 import { UniversalPlatformLanding } from './components/platform/UniversalPlatformLanding';
+import { TenantNotFound } from './components/tenant/TenantNotFound';
 import { UniversalLoginModal } from './components/auth/UniversalLoginModal';
 import { NoWorkspaceModal } from './components/auth/NoWorkspaceModal';
 import { EmailVerificationModal } from './components/auth/EmailVerificationModal';
@@ -343,11 +344,12 @@ function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
 function AppShell() {
   const { user } = useAuth();
   const { role, isDeveloper, identity } = useTenant();
-  const { activeClientId, setActiveClientId } = useSiteContent();
+  const { activeClientId, setActiveClientId, isUnknownTenant, tenantResolution } = useSiteContent();
 
   // Active view: 'platform' | 'storefront'
   const [currentView, setCurrentView] = useState<'platform' | 'storefront'>(() => {
     if (typeof window === 'undefined') return 'storefront';
+    if (tenantResolution?.isPlatform) return 'platform';
     const path = window.location.pathname.toLowerCase();
     const hash = window.location.hash.toLowerCase();
     const search = window.location.search.toLowerCase();
@@ -567,6 +569,10 @@ function AppShell() {
   // Route listener for Platform View vs Storefront View
   useEffect(() => {
     const handleLocationChange = () => {
+      if (tenantResolution?.isPlatform) {
+        setCurrentView('platform');
+        return;
+      }
       const path = window.location.pathname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
       const search = window.location.search.toLowerCase();
@@ -584,7 +590,7 @@ function AppShell() {
       window.removeEventListener('hashchange', handleLocationChange);
       window.removeEventListener('popstate', handleLocationChange);
     };
-  }, []);
+  }, [tenantResolution?.isPlatform]);
 
   const navigateToStorefront = () => {
     try {
@@ -598,7 +604,13 @@ function AppShell() {
 
   return (
     <>
-      {currentView === 'platform' ? (
+      {isUnknownTenant && currentView !== 'platform' ? (
+        <TenantNotFound
+          hostname={typeof window !== 'undefined' ? window.location.hostname : ''}
+          onOpenPlatform={() => setCurrentView('platform')}
+          onOpenLogin={() => setIsUniversalLoginOpen(true)}
+        />
+      ) : currentView === 'platform' ? (
         <UniversalPlatformLanding
           onOpenLogin={() => setIsUniversalLoginOpen(true)}
           onNavigateToStorefront={navigateToStorefront}
