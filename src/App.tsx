@@ -343,7 +343,7 @@ function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
 
 function AppShell() {
   const { user } = useAuth();
-  const { role, isDeveloper, identity } = useTenant();
+  const { role, isDeveloper, identity, refreshTenant } = useTenant();
   const { activeClientId, setActiveClientId, isUnknownTenant, tenantResolution } = useSiteContent();
 
   // Active view: 'platform' | 'storefront'
@@ -415,7 +415,7 @@ function AppShell() {
     return () => window.removeEventListener('popstate', handleCheckInvitationParams);
   }, []);
 
-  const handleInvitationAccepted = (tenantId: string) => {
+  const handleInvitationAccepted = async (tenantId: string) => {
     setInvitationData(null);
     try {
       const url = new URL(window.location.href);
@@ -424,6 +424,14 @@ function AppShell() {
       url.searchParams.set('client', tenantId);
       window.history.replaceState({}, '', url.toString());
     } catch {}
+
+    // Await authoritative tenant context resolution from /users/{uid}
+    try {
+      const resolved = await refreshTenant();
+      console.log(`[Invitation Flow] Tenant state refreshed for tenant: ${tenantId}, assignedClientId: ${resolved.assignedClientId}, role: ${resolved.role}`);
+    } catch (err) {
+      console.warn('[Invitation Flow] Error refreshing tenant state post-acceptance:', err);
+    }
 
     setActiveClientId(tenantId);
     setIsAdminPanelOpen(true);
@@ -610,7 +618,7 @@ function AppShell() {
           onOpenPlatform={() => setCurrentView('platform')}
           onOpenLogin={() => setIsUniversalLoginOpen(true)}
         />
-      ) : currentView === 'platform' ? (
+      ) : currentView === 'platform' || Boolean(invitationData) || tenantResolution?.source === 'invitation' ? (
         <UniversalPlatformLanding
           onOpenLogin={() => setIsUniversalLoginOpen(true)}
           onNavigateToStorefront={navigateToStorefront}

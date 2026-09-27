@@ -12,7 +12,12 @@ export interface TenantContextType {
   destination: ResolvedDestination;
   loading: boolean;
   error: string | null;
-  refreshTenant: () => Promise<void>;
+  refreshTenant: () => Promise<{
+    role: TenantRole;
+    assignedClientId: string | null;
+    identity: ResolvedIdentity;
+    destination: ResolvedDestination;
+  } | null | undefined>;
 }
 
 const LOCAL_ROLE_KEY = 'platform_admin_role';
@@ -126,8 +131,9 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const refreshTenant = async () => {
     if (user) {
-      await resolveTenantForUser(user.uid, user.email, user.emailVerified);
+      return await resolveTenantForUser(user.uid, user.email, user.emailVerified);
     }
+    return null;
   };
 
   const isDeveloper = role === 'developer';

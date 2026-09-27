@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sparkles,
   Building2,
@@ -112,6 +112,7 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
 
   // Status Notification
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isReconciling, setIsReconciling] = useState(false);
 
   // Independent Authorization Guard: refuse privileged rendering unless role === 'developer' and matching master admin identity
   if (!isOpen || !authorizationService.canAccessMasterAdmin(role, user?.email)) return null;
@@ -119,6 +120,37 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   const showNotice = (type: 'success' | 'error', text: string) => {
     setNotice({ type, text });
     setTimeout(() => setNotice(null), 5000);
+  };
+
+  // Auto-reconcile pending tenants against authoritative /clients/{id} documents
+  useEffect(() => {
+    if (!isOpen || role !== 'developer') return;
+    const hasPending = clientsList.some((c) => c.status === 'pending_invitation' || !c.status);
+    if (!hasPending) return;
+
+    tenantService.reconcilePendingTenants(role, clientsList).then(({ hasChanges }) => {
+      if (hasChanges) {
+        console.log('[MasterAdminPanel] Automatically reconciled activated tenants in registry.');
+      }
+    }).catch((err) => {
+      console.warn('[MasterAdminPanel] Notice during pending tenant reconciliation:', err);
+    });
+  }, [isOpen, role, clientsList]);
+
+  const handleManualReconcile = async () => {
+    setIsReconciling(true);
+    try {
+      const { hasChanges } = await tenantService.reconcilePendingTenants(role, clientsList);
+      if (hasChanges) {
+        showNotice('success', '✓ Registry reconciled! Activated tenants updated.');
+      } else {
+        showNotice('success', '✓ Registry is up to date.');
+      }
+    } catch (e: any) {
+      showNotice('error', 'Reconciliation error: ' + (e?.message || e));
+    } finally {
+      setIsReconciling(false);
+    }
   };
 
   // Filtered tenants list
@@ -397,6 +429,15 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleManualReconcile}
+            disabled={isReconciling}
+            className="px-3.5 py-2 bg-white/10 hover:bg-white/15 text-purple-200 hover:text-white font-medium text-xs rounded-xl border border-white/10 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+            title="Reconcile registry with live tenant statuses"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isReconciling ? 'animate-spin' : ''}`} />
+            <span>Sync Status</span>
+          </button>
           <button
             onClick={() => {
               setCreateModalError(null);

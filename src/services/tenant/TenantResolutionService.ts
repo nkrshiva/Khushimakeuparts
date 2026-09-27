@@ -5,6 +5,7 @@ export type TenantResolutionSource =
   | 'custom-domain'
   | 'development'
   | 'platform'
+  | 'invitation'
   | 'unknown';
 
 export interface TenantResolutionResult {
@@ -133,6 +134,9 @@ export class TenantResolutionService {
    * Authoritatively resolves the active tenant and environment type from the current host.
    *
    * Resolution Priority:
+   * 0. Onboarding Invitation context (URL has inviteId + token)?
+   *    -> Neutral onboarding context (source: 'invitation').
+   *       Does NOT bind to the underlying host's tenant storefront.
    * 1. Is this local development (localhost / 127.0.0.1)?
    *    -> Development resolution (permits ?client=, hash, localStorage, with fallback to main tenant).
    * 2. Is this the central platform hostname?
@@ -151,6 +155,29 @@ export class TenantResolutionService {
     const search = options.search || (typeof window !== 'undefined' ? window.location.search : '');
     const hash = options.hash || (typeof window !== 'undefined' ? window.location.hash : '');
     const clients = options.clientsRegistry || [];
+
+    // ─── 0. ONBOARDING INVITATION CONTEXT CHECK ──────────────────────────────
+    // When an invitation link is opened (contains both inviteId and token query params),
+    // treat the request as a neutral onboarding/invitation flow rather than binding strictly
+    // to the underlying host's tenant storefront (e.g. khushimakeupart.vercel.app).
+    try {
+      const searchParams = new URLSearchParams(search);
+      const inviteId = searchParams.get('inviteId')?.trim();
+      const token = searchParams.get('token')?.trim();
+      if (inviteId && token) {
+        // Optional client query parameter hint (for branding/routing hint only, NOT authorization)
+        const rawClientHint = searchParams.get('client')?.trim().toLowerCase().replace(/\/+$/, '');
+        const matchedClient = rawClientHint ? clients.find((c) => c.id.toLowerCase() === rawClientHint) : null;
+        return {
+          tenantId: matchedClient ? matchedClient.id : (rawClientHint || null),
+          source: 'invitation',
+          isPlatform: false,
+          isUnknownTenant: false,
+          matchedDomain: host,
+          matchedClient: matchedClient || null,
+        };
+      }
+    } catch {}
 
     // ─── 1. LOCAL DEVELOPMENT RESOLUTION ─────────────────────────────────────
     const isDev = options.isDevelopmentOverride ?? isDevelopmentHostname(host);

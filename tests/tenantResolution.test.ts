@@ -221,6 +221,62 @@ console.log('\n=== RUNNING TENANT RESOLUTION TEST SUITE ===\n');
   );
 }
 
+// 12. Invitation context on production domain (khushimakeupart.vercel.app/?inviteId=inv1&token=tok1&client=fatima-face-arts)
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?inviteId=inv1&token=tok1&client=fatima-face-arts',
+    clientsRegistry: mockClientsRegistry,
+  });
+  assert(
+    res.source === 'invitation' && res.tenantId === 'fatima-face-arts' && !res.isUnknownTenant,
+    'Invitation link with token and client hint resolves to source: invitation and tenantId: fatima-face-arts',
+    res
+  );
+}
+
+// 13. Invitation context without client hint
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?inviteId=inv1&token=tok1',
+    clientsRegistry: mockClientsRegistry,
+  });
+  assert(
+    res.source === 'invitation' && res.tenantId === null && !res.isUnknownTenant,
+    'Invitation link with token without client hint resolves to source: invitation and tenantId: null',
+    res
+  );
+}
+
+// 14. Incomplete invitation parameters do NOT trigger invitation context (anti-tamper)
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?inviteId=inv1',
+    clientsRegistry: mockClientsRegistry,
+  });
+  assert(
+    res.tenantId === 'khushi-makeup-arts' && res.source !== 'invitation',
+    'Missing token prevents invitation bypass; falls back to production tenant khushi-makeup-arts',
+    res
+  );
+}
+
+// 15. Query param ?client=fatima-face-arts alone does NOT override khushimakeupart.vercel.app
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?client=fatima-face-arts',
+    clientsRegistry: mockClientsRegistry,
+  });
+  assert(
+    res.tenantId === 'khushi-makeup-arts' && res.source !== 'invitation',
+    '?client= alone cannot override production hostname khushimakeupart.vercel.app',
+    res
+  );
+}
+
 console.log(`\nTEST SUMMARY: ${testsPassed} passed, ${testsFailed} failed.\n`);
 if (testsFailed > 0) {
   process.exit(1);

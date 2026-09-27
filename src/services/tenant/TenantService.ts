@@ -107,6 +107,74 @@ export class TenantService {
   }
 
   /**
+   * Subscribes to real-time updates for a single tenant document.
+   */
+  subscribeTenant(
+    clientId: string,
+    onData: (data: Record<string, any> | null) => void,
+    onError?: (err: Error) => void
+  ): () => void {
+    return this.repository.subscribeTenant(clientId, onData, onError);
+  }
+
+  /**
+   * Reconciles any tenants in 'pending_invitation' status against their live /clients/{id} document.
+   * If a tenant has been accepted and activated in Firestore, updates the local registry.
+   * If the caller has platform developer privileges, persists the updated registry back to /settings/clients_registry.
+   * STRICT SECURITY: Only Platform Developers can update the global platform registry.
+   */
+  async reconcilePendingTenants(
+    role: TenantRole,
+    clients: ClientTenantSummary[]
+  ): Promise<{ reconciled: ClientTenantSummary[]; hasChanges: boolean }> {
+    // STRICT DEVELOPER GUARD: Only platform developers have permission to reconcile and write registry
+    if (!authorizationService.canManageTenantLifecycle(role)) {
+      return { reconciled: clients, hasChanges: false };
+    }
+
+    const pendingTenants = clients.filter((c) => c.status === 'pending_invitation' || !c.status);
+    if (pendingTenants.length === 0) {
+      return { reconciled: clients, hasChanges: false };
+    }
+
+    let hasChanges = false;
+    const reconciled = await Promise.all(
+      clients.map(async (client) => {
+        if (client.status !== 'pending_invitation' && client.status) {
+          return client;
+        }
+        try {
+          const liveDoc = await this.repository.getTenant(client.id);
+          if (liveDoc && (liveDoc.status === 'active' || liveDoc.active === true)) {
+            console.log(`[TenantService] Reconciling tenant ${client.id}: pending_invitation -> active`);
+            hasChanges = true;
+            return {
+              ...client,
+              status: (liveDoc.status || 'active') as TenantLifecycleStatus,
+              active: liveDoc.active !== false,
+              updatedAt: liveDoc.updatedAt || new Date().toISOString(),
+            };
+          }
+        } catch (err) {
+          console.warn(`[TenantService] Could not check live status for ${client.id}:`, err);
+        }
+        return client;
+      })
+    );
+
+    if (hasChanges) {
+      console.log('[TenantService] Reconciled activated tenants; persisting updated registry to /settings/clients_registry...');
+      try {
+        await this.repository.saveClientsRegistry(reconciled);
+      } catch (err) {
+        console.warn('[TenantService] Failed to persist reconciled registry:', err);
+      }
+    }
+
+    return { reconciled, hasChanges };
+  }
+
+  /**
    * Provisions a brand new client website / tenant.
    * STRICT SECURITY: Only Platform Developers (Master Admin) can provision new tenants.
    */

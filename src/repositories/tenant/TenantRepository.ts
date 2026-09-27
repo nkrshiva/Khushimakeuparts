@@ -51,6 +51,11 @@ export interface ITenantRepository {
 
   // Tenant Document persistence (/clients/{clientId})
   getTenant(clientId: string): Promise<Record<string, any> | null>;
+  subscribeTenant(
+    clientId: string,
+    onData: (data: Record<string, any> | null) => void,
+    onError?: (err: Error) => void
+  ): () => void;
   saveTenant(clientId: string, data: Record<string, any>, merge?: boolean): Promise<void>;
   deleteTenant(clientId: string): Promise<void>;
   purgeTenantSubcollections(clientId: string, onProgress?: (msg: string) => void): Promise<void>;
@@ -288,6 +293,33 @@ export class TenantRepository implements ITenantRepository {
       return null;
     }
     return snap.data();
+  }
+
+  /**
+   * Subscribes to real-time updates for a single tenant document `/clients/{clientId}`.
+   */
+  subscribeTenant(
+    clientId: string,
+    onData: (data: Record<string, any> | null) => void,
+    onError?: (err: Error) => void
+  ): () => void {
+    if (!db || !clientId) {
+      return () => {};
+    }
+    const clientDocRef = doc(db, 'clients', clientId);
+    return onSnapshot(
+      clientDocRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          onData(snapshot.data());
+        } else {
+          onData(null);
+        }
+      },
+      (err) => {
+        onError?.(err);
+      }
+    );
   }
 
   /**

@@ -458,8 +458,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       localStorage.setItem(PLATFORM_ACTIVE_CLIENT_KEY, cleanId);
 
-      // Only update ?client= in development or platform mode, not on strict tenant production domains
-      if (tenantResolution.source === 'development' || tenantResolution.isPlatform || role === 'developer') {
+      // Only update ?client= in development, platform, or invitation mode, not on strict tenant production domains
+      if (tenantResolution.source === 'development' || tenantResolution.source === 'invitation' || tenantResolution.isPlatform || role === 'developer') {
         const url = new URL(window.location.href);
         url.searchParams.set('client', cleanId);
         window.history.replaceState(null, '', url.toString());
