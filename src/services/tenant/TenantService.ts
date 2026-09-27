@@ -140,20 +140,31 @@ export class TenantService {
         return { success: false, error: `A client website with ID "${id}" already exists.` };
       }
 
+      // Normalize customDomain: trim whitespace, strip protocol/trailing slashes, lowercase.
+      // Omit completely if empty or undefined.
+      const rawDomain = tenantData.customDomain?.trim();
+      const cleanCustomDomain = rawDomain
+        ? rawDomain.toLowerCase().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+        : undefined;
+
+      // Normalize invitedOwnerEmail: trim whitespace, lowercase. Omit completely if empty.
+      const rawEmail = tenantData.invitedOwnerEmail?.trim();
+      const cleanInvitedEmail = rawEmail ? rawEmail.toLowerCase() : undefined;
+
       const newSummary: ClientTenantSummary = {
         id,
         name: cleanName,
-        founder: tenantData.founder.trim() || 'Lead Artist',
-        city: tenantData.city.trim() || 'City',
-        phone: tenantData.phone.trim() || '+91 98765 43210',
-        instagram: tenantData.instagram.trim() || '@salon',
-        customDomain: tenantData.customDomain?.trim() || undefined,
+        founder: (tenantData.founder || '').trim() || 'Lead Artist',
+        city: (tenantData.city || '').trim() || 'City',
+        phone: (tenantData.phone || '').trim() || '+91 98765 43210',
+        instagram: (tenantData.instagram || '').trim() || '@salon',
         archetype: tenantData.archetype || 'solo_mua',
         status: 'pending_invitation',
         active: false,
-        invitedOwnerEmail: tenantData.invitedOwnerEmail?.trim().toLowerCase() || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        ...(cleanCustomDomain ? { customDomain: cleanCustomDomain } : {}),
+        ...(cleanInvitedEmail ? { invitedOwnerEmail: cleanInvitedEmail } : {}),
       };
 
       const tailoredContent = createTailoredSiteContent(newSummary, tenantData.archetype || 'solo_mua');

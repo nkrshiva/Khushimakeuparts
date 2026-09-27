@@ -393,7 +393,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     }
     setIsCreatingClient(true);
     try {
-      const res = await createClientSite(newClientForm);
+      const rawDomain = newClientForm.customDomain?.trim();
+      const cleanDomain = rawDomain
+        ? rawDomain.toLowerCase().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+        : undefined;
+
+      const res = await createClientSite({
+        name: newClientForm.name.trim(),
+        founder: newClientForm.founder.trim() || 'Lead Artist',
+        city: newClientForm.city.trim() || 'City',
+        phone: newClientForm.phone.trim() || '+91 98765 43210',
+        instagram: newClientForm.instagram.trim() || '@salon',
+        archetype: newClientForm.archetype || 'solo_mua',
+        ...(cleanDomain ? { customDomain: cleanDomain } : {}),
+      });
       if (res.success && res.id) {
         showNotice('success', `🎉 New website created successfully for "${newClientForm.name}"!`);
         setShowAddClientModal(false);

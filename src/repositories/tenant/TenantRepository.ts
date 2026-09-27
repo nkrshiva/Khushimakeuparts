@@ -65,6 +65,36 @@ export interface ITenantRepository {
 }
 
 /**
+ * Recursively removes properties with `undefined` values from objects or arrays.
+ * Firestore setDoc/addDoc rejects documents containing `undefined` values with:
+ * "Unsupported field value: undefined"
+ * This sanitizer ensures clean documents are sent to Firestore without enabling global ignoreUndefinedProperties.
+ */
+export function sanitizeFirestoreData<T>(val: T): T {
+  if (val === undefined) {
+    return undefined as unknown as T;
+  }
+  if (val === null || typeof val !== 'object') {
+    return val;
+  }
+  if (val instanceof Date) {
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeFirestoreData(item)) as unknown as T;
+  }
+  const cleanObj: Record<string, any> = {};
+  for (const [key, value] of Object.entries(val as Record<string, any>)) {
+    if (value !== undefined) {
+      cleanObj[key] = sanitizeFirestoreData(value);
+    }
+  }
+  return cleanObj as T;
+}
+
+/**
  * TenantRepository
  *
  * Implements Firestore data-access operations for the Tenant domain.
@@ -116,7 +146,7 @@ export class TenantRepository implements ITenantRepository {
       return;
     }
     const userDocRef = doc(db, 'users', uid);
-    await setDoc(userDocRef, profile, { merge: true });
+    await setDoc(userDocRef, sanitizeFirestoreData(profile), { merge: true });
   }
 
   /**
@@ -211,7 +241,7 @@ export class TenantRepository implements ITenantRepository {
     await setDoc(
       regDocRef,
       {
-        clients,
+        clients: sanitizeFirestoreData(clients),
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -268,7 +298,7 @@ export class TenantRepository implements ITenantRepository {
       return;
     }
     const clientDocRef = doc(db, 'clients', clientId);
-    await setDoc(clientDocRef, data, { merge });
+    await setDoc(clientDocRef, sanitizeFirestoreData(data), { merge });
   }
 
   /**

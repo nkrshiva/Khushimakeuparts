@@ -183,11 +183,21 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
     setIsCreating(true);
     try {
       console.log('[MasterAdmin] Dispatching createClientSite call...');
+      const rawDomain = newTenantForm.customDomain?.trim();
+      const cleanDomain = rawDomain
+        ? rawDomain.toLowerCase().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+        : undefined;
+
       // 1. Provision Tenant in Firestore (PENDING_INVITATION status, active: false)
       const res = await createClientSite({
-        ...newTenantForm,
         name: cleanName,
+        founder: newTenantForm.founder.trim() || 'Lead Artist',
+        city: newTenantForm.city.trim() || 'City',
+        phone: newTenantForm.phone.trim() || '+91 98765 43210',
+        instagram: newTenantForm.instagram.trim() || '@salon',
+        archetype: newTenantForm.archetype || 'solo_mua',
         invitedOwnerEmail: cleanEmail,
+        ...(cleanDomain ? { customDomain: cleanDomain } : {}),
       });
 
       console.log('[MasterAdmin] createClientSite completed with result:', {
