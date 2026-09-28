@@ -421,7 +421,11 @@ function AppShell() {
       const url = new URL(window.location.href);
       url.searchParams.delete('inviteId');
       url.searchParams.delete('token');
-      url.searchParams.set('client', tenantId);
+      if (tenantResolution?.source === 'development' || tenantResolution?.isPlatform) {
+        url.searchParams.set('client', tenantId);
+      } else {
+        url.searchParams.delete('client');
+      }
       window.history.replaceState({}, '', url.toString());
     } catch {}
 

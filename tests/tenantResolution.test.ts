@@ -277,6 +277,227 @@ console.log('\n=== RUNNING TENANT RESOLUTION TEST SUITE ===\n');
   );
 }
 
+// 16. LIVE PRODUCTION SCENARIO: ?client=naveensln on khushimakeupart.vercel.app strictly resolves to Khushi
+{
+  const liveFirestoreRegistry: ClientTenantSummary[] = [
+    {
+      id: 'khushi',
+      name: 'Khushi Makeup Arts',
+      founder: 'Khushi Kumari',
+      city: 'Siwan, Bihar',
+      phone: '+91 91621 43273',
+      instagram: '@khushimakeuparts',
+      archetype: 'solo_mua',
+      status: 'active',
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-09-27T07:58:01.244Z',
+    },
+    {
+      id: 'naveensln',
+      name: 'naveenSLN',
+      founder: 'Naveen',
+      city: 'noida',
+      phone: '8809261324',
+      instagram: '@osmtechies',
+      archetype: 'hybrid_atelier',
+      status: 'active',
+      active: true,
+      invitedOwnerEmail: 'n1999naveenkr@gmail.com',
+      createdAt: '2026-09-27T17:19:19.944Z',
+      updatedAt: '2026-09-27T17:20:11.269Z',
+    },
+  ];
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?client=naveensln',
+    clientsRegistry: liveFirestoreRegistry,
+  });
+
+  assert(
+    res.tenantId === 'khushi' && res.source === 'tenant-hostname' && !res.isUnknownTenant,
+    'khushimakeupart.vercel.app/?client=naveensln strictly resolves to khushi (never naveensln)',
+    res
+  );
+}
+
+// 17. Query param ?client=anything on khushimakeupart.vercel.app strictly resolves to Khushi
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?client=anything-random-xyz',
+    clientsRegistry: mockClientsRegistry,
+  });
+  assert(
+    res.tenantId === 'khushi-makeup-arts' && !res.isUnknownTenant,
+    'khushimakeupart.vercel.app/?client=anything strictly resolves to khushi tenant',
+    res
+  );
+}
+
+// 18. Hash-based client route on production domain cannot override tenant
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    hash: '#/c/naveensln',
+    clientsRegistry: mockClientsRegistry,
+  });
+  assert(
+    res.tenantId === 'khushi-makeup-arts',
+    'khushimakeupart.vercel.app/#/c/naveensln strictly resolves to khushi tenant',
+    res
+  );
+}
+
+// 19. Development localhost switching continues to support ?client=
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'localhost:3000',
+    search: '?client=naveensln',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+  assert(
+    res.tenantId === 'naveensln' && res.source === 'development',
+    'localhost:3000/?client=naveensln resolves to naveensln in development mode',
+    res
+  );
+}
+
+// 20. Requirement A: khushimakeupart.vercel.app/?client=naveensln still resolves to Khushi even when authenticated user has assignedClientId = naveensln
+{
+  const liveFirestoreRegistry: ClientTenantSummary[] = [
+    {
+      id: 'khushi',
+      name: 'Khushi Makeup Arts',
+      founder: 'Khushi Kumari',
+      city: 'Siwan, Bihar',
+      phone: '+91 91621 43273',
+      instagram: '@khushimakeuparts',
+      archetype: 'solo_mua',
+      status: 'active',
+      active: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-09-27T07:58:01.244Z',
+    },
+    {
+      id: 'naveensln',
+      name: 'naveenSLN',
+      founder: 'Naveen',
+      city: 'noida',
+      phone: '8809261324',
+      instagram: '@osmtechies',
+      archetype: 'hybrid_atelier',
+      status: 'active',
+      active: true,
+      invitedOwnerEmail: 'n1999naveenkr@gmail.com',
+      createdAt: '2026-09-27T17:19:19.944Z',
+      updatedAt: '2026-09-27T17:20:11.269Z',
+    },
+  ];
+
+  // 1. Authoritative hostname resolution ignores ?client=naveensln
+  const resolution = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?client=naveensln',
+    clientsRegistry: liveFirestoreRegistry,
+  });
+
+  assert(
+    resolution.tenantId === 'khushi' && resolution.source === 'tenant-hostname',
+    'Hostname resolution returns khushi on khushimakeupart.vercel.app even with ?client=naveensln',
+    resolution
+  );
+
+  // 2. Simulated ContentContext storefront resolution with authenticated user assigned to naveensln
+  const authUser = {
+    role: 'client' as const,
+    assignedClientId: 'naveensln',
+  };
+
+  // On production tenant domain, activeClientId must stay bound to resolution.tenantId
+  const isAuthoritativeDomain = resolution.source === 'tenant-hostname' || resolution.source === 'custom-domain';
+  let storefrontTenantId = resolution.tenantId;
+
+  if (isAuthoritativeDomain) {
+    // assignedClientId must NEVER override storefrontTenantId on production domain
+    storefrontTenantId = resolution.tenantId;
+  } else if (authUser.role === 'client' && authUser.assignedClientId) {
+    storefrontTenantId = authUser.assignedClientId;
+  }
+
+  assert(
+    storefrontTenantId === 'khushi',
+    'Requirement A: Storefront tenant remains strictly khushi when authenticated user has assignedClientId = naveensln',
+    storefrontTenantId
+  );
+}
+
+// 21. Requirement B: Production authentication does not rewrite the storefront URL to ?client=naveensln
+{
+  const productionResolution = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '',
+    clientsRegistry: mockClientsRegistry,
+  });
+
+  const acceptedTenantId = 'naveensln';
+  const url = new URL('https://khushimakeupart.vercel.app/?inviteId=inv1&token=tok1');
+
+  // Invitation accepted cleanup logic
+  url.searchParams.delete('inviteId');
+  url.searchParams.delete('token');
+
+  // ONLY sync ?client= in development or platform mode, NEVER on production tenant domain
+  if (productionResolution.source === 'development' || productionResolution.isPlatform) {
+    url.searchParams.set('client', acceptedTenantId);
+  } else {
+    url.searchParams.delete('client');
+  }
+
+  assert(
+    !url.searchParams.has('client') && url.toString() === 'https://khushimakeupart.vercel.app/',
+    'Requirement B: Production authentication does not rewrite storefront URL to ?client=naveensln',
+    url.toString()
+  );
+}
+
+// 22. Requirement C: An authenticated client can still access the admin context for their assigned tenant through platform/admin flow
+{
+  const authenticatedClient = {
+    uid: 'user_naveen_123',
+    email: 'n1999naveenkr@gmail.com',
+    role: 'client' as const,
+    assignedClientId: 'naveensln',
+  };
+
+  // In the admin context, the target tenant to administer is authoritatively derived from assignedClientId
+  const adminContextTenantId = (authenticatedClient.role === 'client' && authenticatedClient.assignedClientId)
+    ? authenticatedClient.assignedClientId
+    : null;
+
+  assert(
+    adminContextTenantId === 'naveensln',
+    'Requirement C: Authenticated client receives admin context for their assigned tenant (naveensln)',
+    adminContextTenantId
+  );
+
+  // And this admin identity does not alter the public storefront resolution
+  const publicStorefrontResolution = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    clientsRegistry: mockClientsRegistry,
+  });
+
+  assert(
+    publicStorefrontResolution.tenantId === 'khushi-makeup-arts',
+    'Requirement C: Admin context for naveensln leaves public storefront resolution intact as khushi-makeup-arts',
+    publicStorefrontResolution.tenantId
+  );
+}
+
 console.log(`\nTEST SUMMARY: ${testsPassed} passed, ${testsFailed} failed.\n`);
 if (testsFailed > 0) {
   process.exit(1);

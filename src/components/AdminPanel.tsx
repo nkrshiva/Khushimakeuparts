@@ -371,12 +371,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     setDraft(content);
   }, [content]);
 
-  // Lock assigned client if logged in as client editor
+  // Lock assigned client if logged in as client editor (only when admin panel is active)
   React.useEffect(() => {
-    if (assignedClientId && activeClientId !== assignedClientId) {
+    if (isOpen && assignedClientId && activeClientId !== assignedClientId) {
       setActiveClientId(assignedClientId);
     }
-  }, [assignedClientId, activeClientId, setActiveClientId]);
+  }, [isOpen, assignedClientId, activeClientId, setActiveClientId]);
 
   // Ensure client cannot remain on export tab
   React.useEffect(() => {

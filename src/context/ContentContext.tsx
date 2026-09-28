@@ -249,20 +249,37 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
 
   // Anti-tampering gate: For client role, effective tenant must ALWAYS strictly equal assignedClientId
+  // when operating in platform or development mode.
+  // CRITICAL ARCHITECTURAL ISOLATION: On authoritative production tenant domains
+  // (tenantResolution.source === 'tenant-hostname' || tenantResolution.source === 'custom-domain'),
+  // the hostname is sovereign. A logged-in client user browsing another tenant's domain is simply
+  // a public visitor and MUST NOT hijack that domain's storefront!
   useEffect(() => {
+    // If on an authoritative production tenant domain, activeClientId MUST always match tenantResolution.tenantId
+    if (tenantResolution.source === 'tenant-hostname' || tenantResolution.source === 'custom-domain') {
+      if (tenantResolution.tenantId && activeClientId !== tenantResolution.tenantId) {
+        console.warn(`[Tenant Isolation] Enforcing authoritative tenant "${tenantResolution.tenantId}" for domain "${tenantResolution.matchedDomain}"`);
+        setActiveClientIdState(tenantResolution.tenantId);
+      }
+      return;
+    }
+
     if (role === 'client' && assignedClientId) {
       if (activeClientId !== assignedClientId) {
         console.warn(`Anti-tamper enforcement: Active client ${activeClientId} redirected to authorized tenant ${assignedClientId}`);
         setActiveClientIdState(assignedClientId);
         try {
           localStorage.setItem(PLATFORM_ACTIVE_CLIENT_KEY, assignedClientId);
-          const url = new URL(window.location.href);
-          url.searchParams.set('client', assignedClientId);
-          window.history.replaceState(null, '', url.toString());
+          // ONLY sync ?client= to URL in local development mode, NEVER in production!
+          if (tenantResolution.source === 'development') {
+            const url = new URL(window.location.href);
+            url.searchParams.set('client', assignedClientId);
+            window.history.replaceState(null, '', url.toString());
+          }
         } catch {}
       }
     }
-  }, [role, assignedClientId, activeClientId]);
+  }, [role, assignedClientId, activeClientId, tenantResolution]);
 
   // 1. Sync Clients Registry from TenantService
   useEffect(() => {
@@ -280,7 +297,8 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setTenantResolution(resolved);
 
         if (resolved.tenantId && resolved.tenantId !== activeClientId) {
-          if (role !== 'client') {
+          // On authoritative production tenant domains, ALWAYS enforce the domain's resolved tenantId
+          if (resolved.source === 'tenant-hostname' || resolved.source === 'custom-domain' || role !== 'client') {
             setActiveClientIdState(resolved.tenantId);
           }
         }
@@ -295,18 +313,26 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Sync active client ID dynamically when URL query param or hash changes (for development and navigation)
   useEffect(() => {
     const handleUrlChange = () => {
-      // Client users cannot switch tenant context via URL
+      const resolved = tenantResolutionService.resolveTenantFromHost({
+        clientsRegistry: clientsList,
+      });
+      setTenantResolution(resolved);
+
+      // On authoritative production tenant domains, ignore ?client= and URL tampering completely
+      if (resolved.source === 'tenant-hostname' || resolved.source === 'custom-domain') {
+        if (resolved.tenantId && activeClientId !== resolved.tenantId) {
+          setActiveClientIdState(resolved.tenantId);
+        }
+        return;
+      }
+
+      // Client users cannot switch tenant context via URL in platform/dev mode
       if (role === 'client' && assignedClientId) {
         if (activeClientId !== assignedClientId) {
           setActiveClientIdState(assignedClientId);
         }
         return;
       }
-
-      const resolved = tenantResolutionService.resolveTenantFromHost({
-        clientsRegistry: clientsList,
-      });
-      setTenantResolution(resolved);
 
       if (resolved.tenantId && resolved.tenantId !== activeClientId) {
         setActiveClientIdState(resolved.tenantId);
@@ -454,12 +480,24 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
+    // STRICT HOSTNAME LOCK: On an authoritative production tenant domain, activeClientId
+    // is permanently bound to the domain's tenant for storefront rendering.
+    // Switching is only permitted in development, on platform, or within Master Admin cockpit.
+    if (
+      (tenantResolution.source === 'tenant-hostname' || tenantResolution.source === 'custom-domain') &&
+      role !== 'developer' &&
+      cleanId !== tenantResolution.tenantId
+    ) {
+      console.warn(`[ContentContext] Ignored tenant switch to "${cleanId}" on authoritative tenant domain "${tenantResolution.matchedDomain}".`);
+      return;
+    }
+
     setActiveClientIdState(cleanId);
     try {
       localStorage.setItem(PLATFORM_ACTIVE_CLIENT_KEY, cleanId);
 
-      // Only update ?client= in development, platform, or invitation mode, not on strict tenant production domains
-      if (tenantResolution.source === 'development' || tenantResolution.source === 'invitation' || tenantResolution.isPlatform || role === 'developer') {
+      // Only update ?client= in local development mode, NEVER in production!
+      if (tenantResolution.source === 'development') {
         const url = new URL(window.location.href);
         url.searchParams.set('client', cleanId);
         window.history.replaceState(null, '', url.toString());
