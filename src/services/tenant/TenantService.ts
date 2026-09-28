@@ -14,7 +14,7 @@ import type {
   AcceptInvitationInput,
   AcceptInvitationResult,
 } from '../../domain/tenant/types';
-import { DEFAULT_MAIN_CLIENT, isKhushiTenantId } from '../../domain/tenant/types';
+import { DEFAULT_MAIN_CLIENT, isKhushiTenantId, generateTenantSubdomain } from '../../domain/tenant/types';
 import type { SiteContent } from '../../domain/content/types';
 import { tenantRepository, ITenantRepository } from '../../repositories/tenant/TenantRepository';
 import { authorizationService } from '../auth/AuthorizationService';
@@ -95,7 +95,8 @@ export class TenantService {
     } else if (client.customDomain && !client.customDomain.includes('vercel.app') && !client.customDomain.includes('atly.in')) {
       expectedStorefrontUrl = `https://${client.customDomain}`;
     } else {
-      expectedStorefrontUrl = `https://${client.id}.atly.in`;
+      const compactSub = generateTenantSubdomain(client.id) || client.id;
+      expectedStorefrontUrl = `https://${compactSub}.atly.in`;
     }
 
     const needsStorefrontUrl = !client.storefrontUrl || (
@@ -267,14 +268,17 @@ export class TenantService {
         return { success: false, error: 'Salon / Brand name is required.' };
       }
 
-      const slug = cleanName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
-      const id = slug || `client-${Date.now()}`;
+      // Generate compact URL-safe slug with NO hyphens between words
+      const compactSlug = generateTenantSubdomain(cleanName);
+      let id = compactSlug || `salon${Date.now()}`;
 
+      // If ID already exists in registry, append incremental counter to keep unique
       if (existingRegistry.some((c) => c.id === id)) {
-        return { success: false, error: `A client website with ID "${id}" already exists.` };
+        let counter = 2;
+        while (existingRegistry.some((c) => c.id === `${id}${counter}`)) {
+          counter++;
+        }
+        id = `${id}${counter}`;
       }
 
       // Normalize customDomain: trim whitespace, strip protocol/trailing slashes, lowercase.
@@ -327,11 +331,11 @@ export class TenantService {
 
       // If invitedOwnerEmail is provided, create the onboarding invitation
       let invitation: TenantInvitation | undefined;
-      if (tenantData.invitedOwnerEmail?.trim()) {
+      if (cleanInvitedEmail) {
         console.log('[TenantService] Writing invitation to /tenant_invitations...');
         invitation = await this.repository.createInvitation({
           clientId: id,
-          invitedOwnerEmail: tenantData.invitedOwnerEmail.trim(),
+          invitedOwnerEmail: cleanInvitedEmail,
           invitedByUid: 'master_developer',
           invitedByEmail: 'naveen.kr.shiva@gmail.com',
         });

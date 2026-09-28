@@ -56,7 +56,20 @@ export const InvitationAcceptanceModal: React.FC<InvitationAcceptanceModalProps>
       // 1. Fetch public client details if hint is provided
       if (clientIdHint) {
         try {
-          const clientData = await tenantService['repository'].getTenant(clientIdHint);
+          let clientData = await tenantService['repository'].getTenant(clientIdHint);
+          if (!clientData) {
+            const registry = await tenantService.getClientsRegistry();
+            const normHint = clientIdHint.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const matched = registry.find(
+              (c) =>
+                c.id.toLowerCase() === clientIdHint.toLowerCase() ||
+                c.id.toLowerCase().replace(/[^a-z0-9]/g, '') === normHint ||
+                c.name.toLowerCase().replace(/[^a-z0-9]/g, '') === normHint
+            );
+            if (matched) {
+              clientData = (await tenantService['repository'].getTenant(matched.id)) || (matched as any);
+            }
+          }
           if (clientData && isMounted) {
             setTenantSummary(clientData as ClientTenantSummary);
           }

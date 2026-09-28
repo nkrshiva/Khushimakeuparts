@@ -392,17 +392,29 @@ function AppShell() {
     const handleCheckInvitationParams = () => {
       try {
         const search = window.location.search;
-        if (!search) return;
-        const params = new URLSearchParams(search);
-        const inviteId = params.get('inviteId');
-        const token = params.get('token');
-        const clientHint = params.get('client') || undefined;
+        const hash = window.location.hash;
+        let params = new URLSearchParams(search);
+        let inviteId = params.get('inviteId');
+        let token = params.get('token');
+        let clientHint = params.get('client') || undefined;
+
+        // Fallback: check if query parameters were appended to hash (e.g. #/?inviteId=... or #admin?inviteId=...)
+        if ((!inviteId || !token) && hash && hash.includes('?')) {
+          const hashParams = new URLSearchParams(hash.substring(hash.indexOf('?')));
+          inviteId = inviteId || hashParams.get('inviteId');
+          token = token || hashParams.get('token');
+          clientHint = clientHint || hashParams.get('client') || undefined;
+        }
 
         if (inviteId && token) {
+          const host = window.location.hostname.toLowerCase();
+          const hostSubdomain = host.endsWith('.atly.in') ? host.slice(0, -'.atly.in'.length) : '';
+          const fallbackHint = (hostSubdomain && hostSubdomain !== 'www') ? hostSubdomain : undefined;
+
           setInvitationData({
             invitationId: inviteId.trim(),
             token: token.trim(),
-            clientIdHint: clientHint?.trim(),
+            clientIdHint: clientHint?.trim() || fallbackHint,
           });
         }
       } catch (e) {
@@ -417,17 +429,10 @@ function AppShell() {
 
   const handleInvitationAccepted = async (tenantId: string) => {
     setInvitationData(null);
-    try {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('inviteId');
-      url.searchParams.delete('token');
-      if (tenantResolution?.source === 'development' || tenantResolution?.isPlatform) {
-        url.searchParams.set('client', tenantId);
-      } else {
-        url.searchParams.delete('client');
-      }
-      window.history.replaceState({}, '', url.toString());
-    } catch {}
+
+    const currentHost = window.location.hostname.toLowerCase();
+    const isApexPlatform = currentHost === 'atly.in' || currentHost === 'www.atly.in';
+    const tenantTargetHost = `${tenantId}.atly.in`;
 
     // Await authoritative tenant context resolution from /users/{uid}
     try {
@@ -437,9 +442,26 @@ function AppShell() {
       console.warn('[Invitation Flow] Error refreshing tenant state post-acceptance:', err);
     }
 
-    if (tenantResolution?.source === 'development' || tenantResolution?.isPlatform) {
-      setActiveClientId(tenantId);
+    setActiveClientId(tenantId);
+
+    // If accepted on apex platform (atly.in), redirect to tenant's dedicated subdomain
+    if (isApexPlatform) {
+      window.location.href = `https://${tenantTargetHost}/#admin`;
+      return;
     }
+
+    // Clean invitation parameters from the current URL and set admin hash
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('inviteId');
+      url.searchParams.delete('token');
+      url.searchParams.delete('client');
+      url.hash = '#admin';
+      window.history.replaceState({}, '', url.toString());
+      window.dispatchEvent(new Event('popstate'));
+    } catch {}
+
+    setCurrentView('storefront');
     setIsAdminPanelOpen(true);
   };
 
@@ -637,7 +659,7 @@ function AppShell() {
           onOpenPlatform={() => setCurrentView('platform')}
           onOpenLogin={() => setIsUniversalLoginOpen(true)}
         />
-      ) : currentView === 'platform' || Boolean(invitationData) || tenantResolution?.source === 'invitation' ? (
+      ) : currentView === 'platform' || Boolean(invitationData) ? (
         <UniversalPlatformLanding
           onOpenLogin={() => setIsUniversalLoginOpen(true)}
           onNavigateToStorefront={navigateToStorefront}

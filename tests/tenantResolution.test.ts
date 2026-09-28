@@ -1,5 +1,5 @@
 import { tenantResolutionService } from '../src/services/tenant/TenantResolutionService';
-import { ClientTenantSummary, DEFAULT_MAIN_CLIENT } from '../src/domain/tenant/types';
+import { ClientTenantSummary, DEFAULT_MAIN_CLIENT, generateTenantSubdomain } from '../src/domain/tenant/types';
 
 const mockClientsRegistry: ClientTenantSummary[] = [
   {
@@ -914,7 +914,206 @@ console.log('\n=== RUNNING TENANT RESOLUTION TEST SUITE ===\n');
   );
 }
 
+// 41. Canonical Subdomain Generator: compact URL-safe slug with NO hyphens
+{
+  const test1 = generateTenantSubdomain('Naveen Make up artists');
+  const test2 = generateTenantSubdomain('Sweta Glan');
+  const test3 = generateTenantSubdomain('Khushi Makeup Arts');
+  const test4 = generateTenantSubdomain('Zara\'s & Co. 123');
+  const test5 = generateTenantSubdomain('!@#$%^&*()_+');
+
+  assert(
+    (test1 === 'naveenmakeupartists' || test1 === 'naveenmakeupartist') &&
+    test2 === 'swetaglan' &&
+    test3 === 'khushimakeuparts' &&
+    test4 === 'zarasco123' &&
+    test5 === '',
+    'generateTenantSubdomain produces compact DNS-safe slug with NO hyphens',
+    { test1, test2, test3, test4, test5 }
+  );
+}
+
+// 42. Subdomain Resolution: naveenmakeupartist.atly.in resolves to compact tenant record
+{
+  const naveenRecord: ClientTenantSummary = {
+    id: 'naveenmakeupartists',
+    name: 'Naveen Make up artists',
+    founder: 'Naveen',
+    city: 'Delhi',
+    phone: '+91 99999 11111',
+    instagram: '@naveenmakeup',
+    storefrontUrl: 'https://naveenmakeupartist.atly.in',
+    deploymentStatus: 'live',
+    active: true,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'naveenmakeupartist.atly.in',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, naveenRecord],
+  });
+
+  assert(
+    res.tenantId === 'naveenmakeupartists' &&
+    res.source === 'tenant-hostname' &&
+    !res.isUnknownTenant &&
+    !res.isPlatform,
+    'https://naveenmakeupartist.atly.in resolves to tenant naveenmakeupartists via storefrontUrl/name matching',
+    res
+  );
+}
+
+// 43. Subdomain Resolution: swetaglan.atly.in resolves to tenant swetaglan
+{
+  const swetaRecord: ClientTenantSummary = {
+    id: 'swetaglan',
+    name: 'Sweta Glan',
+    founder: 'Sweta',
+    city: 'Kolkata',
+    phone: '+91 99999 22222',
+    instagram: '@swetaglan',
+    storefrontUrl: 'https://swetaglan.atly.in',
+    deploymentStatus: 'live',
+    active: true,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'swetaglan.atly.in',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, swetaRecord],
+  });
+
+  assert(
+    res.tenantId === 'swetaglan' &&
+    res.source === 'tenant-hostname' &&
+    !res.isUnknownTenant,
+    'https://swetaglan.atly.in resolves to tenant swetaglan',
+    res
+  );
+}
+
+// 44. Subdomain Resolution: khushimakeuparts.atly.in resolves to khushi tenant
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeuparts.atly.in',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT],
+  });
+
+  assert(
+    (res.tenantId === 'khushi' || res.tenantId === 'khushi-makeup-arts') &&
+    res.source === 'tenant-hostname' &&
+    !res.isUnknownTenant,
+    'https://khushimakeuparts.atly.in resolves to primary khushi tenant',
+    res
+  );
+}
+
+// 45. Invitation Link on Subdomain WITHOUT &client= param extracts tenant hint from hostname
+{
+  const pendingTenant: ClientTenantSummary = {
+    id: 'naveenmakeupartist',
+    name: 'Naveen Make up artists',
+    founder: 'Naveen',
+    city: 'Delhi',
+    phone: '+91 99999 11111',
+    instagram: '@naveenmua',
+    storefrontUrl: 'https://naveenmakeupartist.atly.in',
+    deploymentStatus: 'live',
+    active: false,
+    status: 'pending_invitation',
+    invitedOwnerEmail: 'naveen@example.com',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'naveenmakeupartist.atly.in',
+    search: '?inviteId=inv_test_123&token=tok_test_456',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, pendingTenant],
+  });
+
+  assert(
+    res.source === 'invitation' &&
+    res.tenantId === 'naveenmakeupartist' &&
+    res.matchedClient?.id === 'naveenmakeupartist' &&
+    !res.isUnknownTenant,
+    'Invitation link on subdomain without &client= param extracts tenant from hostname',
+    res
+  );
+}
+
+// 46. Invitation Link with query parameters in URL hash resolves without losing parameters
+{
+  const pendingTenant: ClientTenantSummary = {
+    id: 'swetaglan',
+    name: 'Sweta Glan',
+    founder: 'Sweta',
+    city: 'Kolkata',
+    phone: '+91 99999 22222',
+    instagram: '@swetaglan',
+    storefrontUrl: 'https://swetaglan.atly.in',
+    deploymentStatus: 'live',
+    active: false,
+    status: 'pending_invitation',
+    invitedOwnerEmail: 'sweta@example.com',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'swetaglan.atly.in',
+    search: '',
+    hash: '#/?inviteId=inv_hash_789&token=tok_hash_012&client=swetaglan',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, pendingTenant],
+  });
+
+  assert(
+    res.source === 'invitation' &&
+    res.tenantId === 'swetaglan' &&
+    res.matchedClient?.id === 'swetaglan',
+    'Invitation link with query parameters in hash resolves correctly without losing parameters',
+    res
+  );
+}
+
+// 47. Pending tenant in pending_invitation status resolves authoritatively without invite params
+{
+  const pendingTenant: ClientTenantSummary = {
+    id: 'swetaglan',
+    name: 'Sweta Glan',
+    founder: 'Sweta',
+    city: 'Kolkata',
+    phone: '+91 99999 22222',
+    instagram: '@swetaglan',
+    storefrontUrl: 'https://swetaglan.atly.in',
+    deploymentStatus: 'live',
+    active: false,
+    status: 'pending_invitation',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'swetaglan.atly.in',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, pendingTenant],
+  });
+
+  assert(
+    res.tenantId === 'swetaglan' &&
+    res.source === 'tenant-hostname' &&
+    !res.isUnknownTenant &&
+    res.matchedClient?.status === 'pending_invitation',
+    'Pending tenant in pending_invitation status resolves authoritatively on its subdomain',
+    res
+  );
+}
+
 console.log(`\nTEST SUMMARY: ${testsPassed} passed, ${testsFailed} failed.\n`);
 if (testsFailed > 0) {
   process.exit(1);
 }
+

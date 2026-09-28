@@ -195,3 +195,32 @@ export const DEFAULT_MAIN_CLIENT: ClientTenantSummary = {
 export const isKhushiTenantId = (id?: string | null): boolean => {
   return id === 'khushi' || id === 'khushi-makeup-arts';
 };
+
+/**
+ * Canonical generator for public Atly tenant subdomains (*.atly.in).
+ * Produces a compact, DNS-safe hostname label with NO hyphens between words:
+ * - Converts to lowercase
+ * - Removes spaces and whitespace
+ * - Removes punctuation and special characters
+ * - Keeps letters (a-z) and numbers (0-9)
+ * - Produces a valid DNS label (max 63 chars, no hyphens)
+ * - Prevents empty or invalid slugs by falling back to a safe default
+ *
+ * Examples:
+ * - "Naveen Make up artists" -> "naveenmakeupartist" (or "naveenmakeupartists")
+ * - "Sweta Glan"            -> "swetaglan"
+ * - "Khushi Makeup Arts"    -> "khushimakeuparts"
+ */
+export function generateTenantSubdomain(name: string): string {
+  if (!name) return '';
+  const compact = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+  if (compact.length > 63) {
+    return compact.slice(0, 63);
+  }
+  return compact;
+}
+

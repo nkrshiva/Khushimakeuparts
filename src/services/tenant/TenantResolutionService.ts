@@ -1,4 +1,6 @@
-import { ClientTenantSummary, isKhushiTenantId } from '../../domain/tenant/types';
+import { ClientTenantSummary, isKhushiTenantId, generateTenantSubdomain } from '../../domain/tenant/types';
+
+export { generateTenantSubdomain };
 
 export type TenantResolutionSource =
   | 'tenant-hostname'
@@ -185,12 +187,43 @@ export class TenantResolutionService {
     // to the underlying host's tenant storefront (e.g. khushimakeupart.vercel.app).
     try {
       const searchParams = new URLSearchParams(search);
-      const inviteId = searchParams.get('inviteId')?.trim();
-      const token = searchParams.get('token')?.trim();
+      let inviteId = searchParams.get('inviteId')?.trim();
+      let token = searchParams.get('token')?.trim();
+
+      // Fallback: check hash for query parameters (e.g. #/?inviteId=... or #admin?inviteId=...)
+      if ((!inviteId || !token) && hash && hash.includes('?')) {
+        const hashParams = new URLSearchParams(hash.substring(hash.indexOf('?')));
+        inviteId = inviteId || hashParams.get('inviteId')?.trim();
+        token = token || hashParams.get('token')?.trim();
+      }
+
       if (inviteId && token) {
         // Optional client query parameter hint (for branding/routing hint only, NOT authorization)
-        const rawClientHint = searchParams.get('client')?.trim().toLowerCase().replace(/\/+$/, '');
-        const matchedClient = rawClientHint ? clients.find((c) => c.id.toLowerCase() === rawClientHint) : null;
+        let rawClientHint = searchParams.get('client')?.trim().toLowerCase().replace(/\/+$/, '');
+        if (!rawClientHint && hash && hash.includes('?')) {
+          const hashParams = new URLSearchParams(hash.substring(hash.indexOf('?')));
+          rawClientHint = hashParams.get('client')?.trim().toLowerCase().replace(/\/+$/, '');
+        }
+
+        // If client hint not in query, extract subdomain from host (e.g. naveenmakeupartist.atly.in)
+        if (!rawClientHint && host.endsWith('.atly.in')) {
+          const sub = host.slice(0, -'.atly.in'.length);
+          if (sub && sub !== 'www') {
+            rawClientHint = sub;
+          }
+        }
+
+        const normHint = rawClientHint ? normalizeSlug(rawClientHint) : '';
+        const matchedClient = rawClientHint
+          ? clients.find(
+              (c) =>
+                c.id.toLowerCase() === rawClientHint ||
+                normalizeSlug(c.id) === normHint ||
+                normalizeSlug(c.name) === normHint ||
+                (c.storefrontUrl && normalizeHostname(c.storefrontUrl).startsWith(`${rawClientHint}.`))
+            )
+          : null;
+
         return {
           tenantId: matchedClient ? matchedClient.id : (rawClientHint || null),
           source: 'invitation',
@@ -372,9 +405,41 @@ export class TenantResolutionService {
         };
       }
 
-      // 2. De-hyphenated match (e.g. "fatima-face-arts" matches "fatimafacearts")
+      // 2. Match against client.storefrontUrl (e.g. https://naveenmakeupartist.atly.in)
       const normSub = normalizeSlug(subdomain);
-      const dehyphenMatch = clients.find((c) => normalizeSlug(c.id) === normSub);
+      const storefrontMatch = clients.find((c) => {
+        if (!c.storefrontUrl) return false;
+        const normStorefront = normalizeHostname(c.storefrontUrl);
+        return (
+          normStorefront === host ||
+          normStorefront.startsWith(`${subdomain}.`) ||
+          normalizeSlug(normStorefront.split('.')[0]) === normSub
+        );
+      });
+      if (storefrontMatch) {
+        return {
+          tenantId: storefrontMatch.id,
+          source: 'tenant-hostname',
+          isPlatform: false,
+          isUnknownTenant: false,
+          matchedDomain: host,
+          matchedClient: storefrontMatch,
+        };
+      }
+
+      // 3. Compact / de-hyphenated match against client.id and client.name (with singular/plural leniency)
+      const dehyphenMatch = clients.find((c) => {
+        const idNorm = normalizeSlug(c.id);
+        const nameNorm = normalizeSlug(c.name);
+        return (
+          idNorm === normSub ||
+          nameNorm === normSub ||
+          idNorm === normSub + 's' ||
+          idNorm + 's' === normSub ||
+          nameNorm === normSub + 's' ||
+          nameNorm + 's' === normSub
+        );
+      });
       if (dehyphenMatch) {
         return {
           tenantId: dehyphenMatch.id,
@@ -386,7 +451,7 @@ export class TenantResolutionService {
         };
       }
 
-      // 3. Custom domain prefix match
+      // 4. Custom domain prefix match
       const customPrefixMatch = clients.find((c) => {
         if (!c.customDomain) return false;
         const normCustom = normalizeHostname(c.customDomain);
