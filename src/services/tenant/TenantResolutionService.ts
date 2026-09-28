@@ -1,4 +1,4 @@
-import { ClientTenantSummary } from '../../domain/tenant/types';
+import { ClientTenantSummary, isKhushiTenantId } from '../../domain/tenant/types';
 
 export type TenantResolutionSource =
   | 'tenant-hostname'
@@ -31,6 +31,8 @@ export interface ResolveTenantOptions {
  * Standard known platform domain aliases / subdomains.
  */
 const DEFAULT_PLATFORM_HOSTNAMES = [
+  'atly.in',
+  'www.atly.in',
   'platform.ateliersaas.com',
   'atelier-platform.vercel.app',
   'auraos.vercel.app',
@@ -45,6 +47,7 @@ const DEFAULT_PLATFORM_HOSTNAMES = [
 const CANONICAL_TENANT_HOSTNAME_MAP: Record<string, string> = {
   'khushimakeupart': 'khushi-makeup-arts',
   'khushimakeuparts': 'khushi-makeup-arts',
+  'khushi': 'khushi-makeup-arts',
 };
 
 /**
@@ -115,7 +118,10 @@ export function getBuildTimeTenantId(): string {
  */
 export function isPlatformHostname(hostname: string, customPlatformHosts: string[] = []): boolean {
   const host = normalizeHostname(hostname);
-  if (!host) return false;
+  // Apex platform domains (atly.in, www.atly.in)
+  if (host === 'atly.in' || host === 'www.atly.in') {
+    return true;
+  }
 
   // Environment variable override
   const envPlatformHost = typeof import.meta !== 'undefined' && import.meta.env
@@ -199,12 +205,15 @@ export class TenantResolutionService {
     // ─── 0.5 DEDICATED BUILD-TIME TENANT IDENTITY (VITE_TENANT_ID) ───────────
     // When a Vercel project is deployed for a specific tenant, VITE_TENANT_ID
     // identifies the project authoritatively at build time.
+    // NOTE: On the shared wildcard deployment (atly.in and *.atly.in), VITE_TENANT_ID
+    // must NEVER override dynamic tenant subdomains!
     const isDev = options.isDevelopmentOverride ?? isDevelopmentHostname(host);
+    const isSharedWildcardHost = host === 'atly.in' || host.endsWith('.atly.in');
     const buildTenantId = options.viteTenantIdOverride !== undefined
       ? options.viteTenantIdOverride.trim().toLowerCase()
       : getBuildTimeTenantId();
 
-    if (buildTenantId && !isDev) {
+    if (buildTenantId && !isDev && !isSharedWildcardHost) {
       const matchedClient = clients.find(
         (c) => c.id.toLowerCase() === buildTenantId ||
           (buildTenantId === 'khushi' && c.id === 'khushi-makeup-arts') ||
@@ -289,7 +298,7 @@ export class TenantResolutionService {
       } catch {}
 
       // 4. Default development fallback
-      const defaultId = buildTenantId || clients[0]?.id || 'khushi-makeup-arts';
+      const defaultId = (!isSharedWildcardHost && buildTenantId) || clients[0]?.id || 'khushi-makeup-arts';
       return {
         tenantId: defaultId,
         source: 'development',
@@ -333,9 +342,11 @@ export class TenantResolutionService {
       }
     }
 
-    // Step B: Vercel Subdomain / Hostname Resolution (e.g. *.vercel.app)
+    // Step B: Wildcard Subdomain / Hostname Resolution (e.g. *.atly.in, *.vercel.app)
     let subdomain = '';
-    if (host.endsWith('.vercel.app')) {
+    if (host.endsWith('.atly.in')) {
+      subdomain = host.slice(0, -'.atly.in'.length);
+    } else if (host.endsWith('.vercel.app')) {
       subdomain = host.slice(0, -'.vercel.app'.length);
     } else {
       const parts = host.split('.');
@@ -344,9 +355,12 @@ export class TenantResolutionService {
       }
     }
 
-    if (subdomain) {
-      // 1. Direct match with client.id
-      const directMatch = clients.find((c) => c.id.toLowerCase() === subdomain);
+    if (subdomain && subdomain !== 'www') {
+      // 1. Direct match with client.id (including canonical khushi <-> khushi-makeup-arts)
+      const directMatch = clients.find((c) =>
+        c.id.toLowerCase() === subdomain ||
+        (isKhushiTenantId(subdomain) && isKhushiTenantId(c.id))
+      );
       if (directMatch) {
         return {
           tenantId: directMatch.id,

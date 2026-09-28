@@ -14,7 +14,7 @@ import type {
   AcceptInvitationInput,
   AcceptInvitationResult,
 } from '../../domain/tenant/types';
-import { DEFAULT_MAIN_CLIENT } from '../../domain/tenant/types';
+import { DEFAULT_MAIN_CLIENT, isKhushiTenantId } from '../../domain/tenant/types';
 import type { SiteContent } from '../../domain/content/types';
 import { tenantRepository, ITenantRepository } from '../../repositories/tenant/TenantRepository';
 import { authorizationService } from '../auth/AuthorizationService';
@@ -82,13 +82,47 @@ export class TenantService {
   }
 
   /**
+   * Enriches a tenant summary with authoritative storefront URL and deployment status
+   * if they are missing or pointing to legacy addresses.
+   */
+  enrichTenantMetadata(client: ClientTenantSummary): ClientTenantSummary {
+    const isLive = client.status === 'active' || (client.active !== false && client.status !== 'pending_invitation');
+    const isKhushi = isKhushiTenantId(client.id);
+
+    let expectedStorefrontUrl: string;
+    if (isKhushi) {
+      expectedStorefrontUrl = 'https://khushi.atly.in';
+    } else if (client.customDomain && !client.customDomain.includes('vercel.app') && !client.customDomain.includes('atly.in')) {
+      expectedStorefrontUrl = `https://${client.customDomain}`;
+    } else {
+      expectedStorefrontUrl = `https://${client.id}.atly.in`;
+    }
+
+    const needsStorefrontUrl = !client.storefrontUrl || (
+      // If not a custom third-party domain and pointing to legacy vercel.app, update to *.atly.in
+      (!client.customDomain || client.customDomain.includes('vercel.app')) && client.storefrontUrl.includes('.vercel.app')
+    );
+    const needsDeploymentStatus = !client.deploymentStatus;
+
+    if (!needsStorefrontUrl && !needsDeploymentStatus) {
+      return client;
+    }
+
+    return {
+      ...client,
+      storefrontUrl: needsStorefrontUrl ? expectedStorefrontUrl : client.storefrontUrl,
+      deploymentStatus: needsDeploymentStatus ? (isLive ? 'live' : 'pending') : client.deploymentStatus,
+    };
+  }
+
+  /**
    * Retrieves the global platform tenant registry.
    */
   async getClientsRegistry(): Promise<ClientTenantSummary[]> {
     try {
       const list = await this.repository.getClientsRegistry();
       if (list && list.length > 0) {
-        return list;
+        return list.map((c) => this.enrichTenantMetadata(c));
       }
     } catch (err) {
       console.warn('TenantService getClientsRegistry warning:', err);
@@ -103,7 +137,10 @@ export class TenantService {
     onData: (clients: ClientTenantSummary[]) => void,
     onError?: (err: Error) => void
   ): () => void {
-    return this.repository.subscribeClientsRegistry(onData, onError);
+    return this.repository.subscribeClientsRegistry(
+      (clients) => onData(clients.map((c) => this.enrichTenantMetadata(c))),
+      onError
+    );
   }
 
   /**
@@ -118,9 +155,15 @@ export class TenantService {
   }
 
   /**
-   * Reconciles any tenants in 'pending_invitation' status against their live /clients/{id} document.
-   * If a tenant has been accepted and activated in Firestore, updates the local registry.
-   * If the caller has platform developer privileges, persists the updated registry back to /settings/clients_registry.
+   * Reconciles any tenants in 'pending_invitation' status against their live /clients/{id} document,
+   * and ensures all tenant records have consistent storefrontUrl and deploymentStatus metadata
+   * for the *.atly.in wildcard architecture:
+   * - khushi -> https://khushi.atly.in, deploymentStatus: 'live'
+   * - naveensln -> https://naveensln.atly.in, deploymentStatus: 'live'
+   * - rahulbau -> https://rahulbau.atly.in, deploymentStatus: 'live'
+   *
+   * If updates are detected and the caller has platform developer privileges, persists
+   * the updated registry back to /settings/clients_registry and /clients/{id}.
    * STRICT SECURITY: Only Platform Developers can update the global platform registry.
    */
   async reconcilePendingTenants(
@@ -129,41 +172,67 @@ export class TenantService {
   ): Promise<{ reconciled: ClientTenantSummary[]; hasChanges: boolean }> {
     // STRICT DEVELOPER GUARD: Only platform developers have permission to reconcile and write registry
     if (!authorizationService.canManageTenantLifecycle(role)) {
-      return { reconciled: clients, hasChanges: false };
-    }
-
-    const pendingTenants = clients.filter((c) => c.status === 'pending_invitation' || !c.status);
-    if (pendingTenants.length === 0) {
-      return { reconciled: clients, hasChanges: false };
+      return { reconciled: clients.map((c) => this.enrichTenantMetadata(c)), hasChanges: false };
     }
 
     let hasChanges = false;
     const reconciled = await Promise.all(
       clients.map(async (client) => {
-        if (client.status !== 'pending_invitation' && client.status) {
-          return client;
-        }
-        try {
-          const liveDoc = await this.repository.getTenant(client.id);
-          if (liveDoc && (liveDoc.status === 'active' || liveDoc.active === true)) {
-            console.log(`[TenantService] Reconciling tenant ${client.id}: pending_invitation -> active`);
-            hasChanges = true;
-            return {
-              ...client,
-              status: (liveDoc.status || 'active') as TenantLifecycleStatus,
-              active: liveDoc.active !== false,
-              updatedAt: liveDoc.updatedAt || new Date().toISOString(),
-            };
+        let updated = { ...client };
+
+        // 1. Reconcile pending invitations
+        if (client.status === 'pending_invitation' || !client.status) {
+          try {
+            const liveDoc = await this.repository.getTenant(client.id);
+            if (liveDoc && (liveDoc.status === 'active' || liveDoc.active === true)) {
+              console.log(`[TenantService] Reconciling tenant ${client.id}: pending_invitation -> active`);
+              hasChanges = true;
+              updated = {
+                ...updated,
+                status: (liveDoc.status || 'active') as TenantLifecycleStatus,
+                active: liveDoc.active !== false,
+                updatedAt: liveDoc.updatedAt || new Date().toISOString(),
+              };
+            }
+          } catch (err) {
+            console.warn(`[TenantService] Could not check live status for ${client.id}:`, err);
           }
-        } catch (err) {
-          console.warn(`[TenantService] Could not check live status for ${client.id}:`, err);
         }
-        return client;
+
+        // 2. Reconcile metadata consistency for wildcard architecture
+        const enriched = this.enrichTenantMetadata(updated);
+        if (
+          enriched.storefrontUrl !== client.storefrontUrl ||
+          enriched.deploymentStatus !== client.deploymentStatus
+        ) {
+          console.log(`[TenantService] Reconciling tenant metadata for ${client.id}: storefrontUrl=${enriched.storefrontUrl}, deploymentStatus=${enriched.deploymentStatus}`);
+          hasChanges = true;
+          updated = enriched;
+
+          // If individual tenant doc exists in Firestore, persist metadata there as well
+          if (client.id !== 'khushi') {
+            try {
+              await this.repository.saveTenant(
+                client.id,
+                {
+                  storefrontUrl: enriched.storefrontUrl,
+                  deploymentStatus: enriched.deploymentStatus,
+                  updatedAt: new Date().toISOString(),
+                },
+                true
+              );
+            } catch (err) {
+              console.warn(`[TenantService] Could not update live doc metadata for ${client.id}:`, err);
+            }
+          }
+        }
+
+        return updated;
       })
     );
 
     if (hasChanges) {
-      console.log('[TenantService] Reconciled activated tenants; persisting updated registry to /settings/clients_registry...');
+      console.log('[TenantService] Persisting reconciled tenant metadata to /settings/clients_registry...');
       try {
         await this.repository.saveClientsRegistry(reconciled);
       } catch (err) {
@@ -222,7 +291,7 @@ export class TenantService {
       const vercelProjectName = id;
       const designatedStorefrontUrl = cleanCustomDomain
         ? `https://${cleanCustomDomain}`
-        : `https://${id}.vercel.app`;
+        : `https://${id}.atly.in`;
 
       const newSummary: ClientTenantSummary = {
         id,
@@ -236,7 +305,7 @@ export class TenantService {
         active: false,
         storefrontUrl: designatedStorefrontUrl,
         vercelProjectName,
-        deploymentStatus: 'pending',
+        deploymentStatus: 'live',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         ...(cleanCustomDomain ? { customDomain: cleanCustomDomain } : {}),

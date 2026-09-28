@@ -445,16 +445,20 @@ function AppShell() {
 
   const cleanAdminHash = () => {
     const hash = window.location.hash.toLowerCase();
+    const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
     if (
       hash === '#masteradmin' ||
       hash === '#myadminpanel' ||
       hash === '#admin' ||
       hash === '#employee' ||
       hash === '#no-workspace' ||
-      hash === '#verify-email'
+      hash === '#verify-email' ||
+      path === '/admin' ||
+      path === '/masteradmin' ||
+      path === '/employee'
     ) {
       try {
-        history.replaceState(null, '', window.location.pathname + window.location.search);
+        history.replaceState(null, '', '/' + window.location.search);
       } catch {}
     }
   };
@@ -509,23 +513,24 @@ function AppShell() {
     }
   };
 
-  // Route handling for #masteradmin, #admin / #myadminpanel, #employee, #no-workspace, #verify-email
+  // Route handling for #masteradmin, #admin / #myadminpanel, #employee, #no-workspace, #verify-email, /admin, /masteradmin
   useEffect(() => {
     const handleCheckAdminRoute = () => {
       const hash = window.location.hash.toLowerCase();
-      if (hash === '#masteradmin') {
+      const path = window.location.pathname.toLowerCase().replace(/\/+$/, '');
+      if (hash === '#masteradmin' || path === '/masteradmin') {
         if (authorizationService.canAccessMasterAdmin(role, user?.email)) {
           setIsMasterAdminOpen(true);
         } else {
           setIsUniversalLoginOpen(true);
         }
-      } else if (hash === '#myadminpanel' || hash === '#admin') {
+      } else if (hash === '#myadminpanel' || hash === '#admin' || path === '/admin') {
         if (authorizationService.canAccessAdminPanel(role)) {
           setIsAdminPanelOpen(true);
         } else {
           setIsUniversalLoginOpen(true);
         }
-      } else if (hash === '#employee') {
+      } else if (hash === '#employee' || path === '/employee') {
         if (authorizationService.canAccessEmployeeWorkspace(role, identity.type)) {
           if (identity.type === 'TENANT_EMPLOYEE') {
             setEmployeeWorkspaceData({
@@ -594,8 +599,14 @@ function AppShell() {
       const search = window.location.search.toLowerCase();
       if (path === '/platform' || hash === '#platform' || hash === '#portal' || search.includes('view=platform')) {
         setCurrentView('platform');
-      } else if (hash === '#storefront' || hash === '' || path === '/') {
-        if (hash !== '#masteradmin' && hash !== '#myadminpanel' && hash !== '#admin') {
+      } else if (hash === '#storefront' || hash === '' || path === '' || path === '/') {
+        if (
+          hash !== '#masteradmin' &&
+          hash !== '#myadminpanel' &&
+          hash !== '#admin' &&
+          path !== '/admin' &&
+          path !== '/masteradmin'
+        ) {
           setCurrentView('storefront');
         }
       }

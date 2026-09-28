@@ -118,8 +118,14 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
   // MUST be before the early return guard — hooks must always be called unconditionally
   useEffect(() => {
     if (!isOpen || role !== 'developer') return;
-    const hasPending = clientsList.some((c) => c.status === 'pending_invitation' || !c.status);
-    if (!hasPending) return;
+    const needsReconciliation = clientsList.some(
+      (c) =>
+        c.status === 'pending_invitation' ||
+        !c.status ||
+        !c.storefrontUrl ||
+        !c.deploymentStatus
+    );
+    if (!needsReconciliation) return;
 
     tenantService.reconcilePendingTenants(role, clientsList).then(({ hasChanges }) => {
       if (hasChanges) {
@@ -579,17 +585,20 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
                                 {tenant.customDomain && (
                                   <span className="text-purple-300/80">🌐 {tenant.customDomain}</span>
                                 )}
-                                {tenant.storefrontUrl && (
-                                  <a
-                                    href={tenant.storefrontUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-purple-400 hover:text-purple-200 underline flex items-center gap-0.5"
-                                  >
-                                    <span>{tenant.storefrontUrl.replace(/^https?:\/\//i, '')}</span>
-                                    <ExternalLink className="w-2.5 h-2.5" />
-                                  </a>
-                                )}
+                                {(() => {
+                                  const url = tenant.storefrontUrl || (tenant.id === 'khushi' ? 'https://khushi.atly.in' : `https://${tenant.id}.atly.in`);
+                                  return (
+                                    <a
+                                      href={url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-purple-400 hover:text-purple-200 underline flex items-center gap-0.5"
+                                    >
+                                      <span>{url.replace(/^https?:\/\//i, '')}</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -1028,7 +1037,7 @@ export const MasterAdminPanel: React.FC<MasterAdminPanelProps> = ({
               {/* Direct Invitation Link */}
               {invitationSuccessDialog.invitationId && invitationSuccessDialog.token && (() => {
                 const targetTenant = clientsList.find((c) => c.id === invitationSuccessDialog.clientId);
-                const baseUrl = (targetTenant?.storefrontUrl || window.location.origin).replace(/\/+$/, '');
+                const baseUrl = (targetTenant?.storefrontUrl || `https://${invitationSuccessDialog.clientId}.atly.in`).replace(/\/+$/, '');
                 const inviteLink = `${baseUrl}/?inviteId=${invitationSuccessDialog.invitationId}&token=${invitationSuccessDialog.token}&client=${invitationSuccessDialog.clientId}`;
 
                 return (

@@ -495,7 +495,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, adminTe
     const origin = window.location.origin;
     const client = clientsList.find((c) => c.id === clientId);
     const isDev = origin.includes('localhost') || origin.includes('127.0.0.1');
-    const url = client?.storefrontUrl || (clientId === 'khushi' ? origin : (isDev ? `${origin}/?client=${clientId}` : `https://${clientId}.vercel.app`));
+    const url = client?.storefrontUrl || (clientId === 'khushi' ? 'https://khushi.atly.in' : (isDev ? `${origin}/?client=${clientId}` : `https://${clientId}.atly.in`));
     navigator.clipboard.writeText(url);
     setCopiedClientId(clientId);
     setTimeout(() => setCopiedClientId(null), 2500);
@@ -506,7 +506,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, adminTe
     const origin = window.location.origin;
     const client = clientsList.find((c) => c.id === clientId);
     const isDev = origin.includes('localhost') || origin.includes('127.0.0.1');
-    const base = client?.storefrontUrl || (clientId === 'khushi' ? origin : (isDev ? `${origin}/?client=${clientId}` : `https://${clientId}.vercel.app`));
+    const base = client?.storefrontUrl || (clientId === 'khushi' ? 'https://khushi.atly.in' : (isDev ? `${origin}/?client=${clientId}` : `https://${clientId}.atly.in`));
     const url = `${base}/#myadminpanel`;
     navigator.clipboard.writeText(url);
     setCopiedClientId(`admin_${clientId}`);
@@ -911,9 +911,9 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
             href={(() => {
               const client = clientsList.find((c) => c.id === effectiveAdminTenantId);
               if (client?.storefrontUrl) return client.storefrontUrl;
-              if (effectiveAdminTenantId === 'khushi') return '/';
+              if (effectiveAdminTenantId === 'khushi') return 'https://khushi.atly.in';
               const isDev = typeof window !== 'undefined' && (window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1'));
-              return isDev ? `/?client=${effectiveAdminTenantId}` : `https://${effectiveAdminTenantId}.vercel.app`;
+              return isDev ? `/?client=${effectiveAdminTenantId}` : `https://${effectiveAdminTenantId}.atly.in`;
             })()}
             target="_blank"
             rel="noopener noreferrer"

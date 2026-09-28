@@ -209,6 +209,8 @@ export default async function handler(req: any, res: any) {
           tenantStorefrontUrl = clientData.storefrontUrl.trim();
         } else if (clientData.customDomain && typeof clientData.customDomain === 'string') {
           tenantStorefrontUrl = `https://${clientData.customDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`;
+        } else if (invitation.clientId) {
+          tenantStorefrontUrl = `https://${invitation.clientId}.atly.in`;
         }
       }
     } catch {
@@ -216,8 +218,8 @@ export default async function handler(req: any, res: any) {
     }
 
     // 10. Construct secure invitation URL
-    // If the tenant has an authoritative storefrontUrl or custom domain, use it; otherwise fallback to origin
-    const appBaseUrl = tenantStorefrontUrl || origin || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://khushimakeuparts865.web.app';
+    // If the tenant has an authoritative storefrontUrl or custom domain, use it; otherwise fallback to atly.in subdomain
+    const appBaseUrl = tenantStorefrontUrl || (invitation.clientId ? `https://${invitation.clientId}.atly.in` : (origin || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://khushimakeuparts865.web.app'));
     const cleanOrigin = appBaseUrl.replace(/\/+$/, '');
     const inviteUrlLink = `${cleanOrigin}/?inviteId=${encodeURIComponent(invitationId)}&token=${encodeURIComponent(authoritativeToken)}&client=${encodeURIComponent(invitation.clientId)}`;
 

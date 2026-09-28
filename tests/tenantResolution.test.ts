@@ -1,5 +1,5 @@
 import { tenantResolutionService } from '../src/services/tenant/TenantResolutionService';
-import { ClientTenantSummary } from '../src/domain/tenant/types';
+import { ClientTenantSummary, DEFAULT_MAIN_CLIENT } from '../src/domain/tenant/types';
 
 const mockClientsRegistry: ClientTenantSummary[] = [
   {
@@ -618,6 +618,299 @@ console.log('\n=== RUNNING TENANT RESOLUTION TEST SUITE ===\n');
     resolution.source === 'tenant-hostname',
     'Fourth tenant dynamically computes deployment metadata and resolves automatically on its Vercel domain',
     { newSummary, resolution }
+  );
+}
+
+// 28. atly.in -> platform/master site (MUST NEVER resolve to default khushi tenant)
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'atly.in',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'rahulbau', name: 'rahulbau', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.isPlatform === true &&
+    res.tenantId === null &&
+    res.source === 'platform' &&
+    res.tenantId !== 'khushi' &&
+    res.tenantId !== 'khushi-makeup-arts',
+    'https://atly.in resolves strictly to platform/master site (never to default khushi tenant)',
+    res
+  );
+}
+
+// 29. www.atly.in -> platform/master site (MUST NEVER resolve to default khushi tenant)
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'www.atly.in',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.isPlatform === true &&
+    res.tenantId === null &&
+    res.source === 'platform' &&
+    res.tenantId !== 'khushi' &&
+    res.tenantId !== 'khushi-makeup-arts',
+    'https://www.atly.in resolves strictly to platform/master site (never to default khushi tenant)',
+    res
+  );
+}
+
+// 30. khushi.atly.in -> tenant khushi
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushi.atly.in',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.tenantId === 'khushi' && res.source === 'tenant-hostname' && !res.isPlatform && !res.isUnknownTenant,
+    'https://khushi.atly.in resolves to tenant khushi',
+    res
+  );
+}
+
+// 31. naveensln.atly.in -> tenant naveensln
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'naveensln.atly.in',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'rahulbau', name: 'rahulbau', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.tenantId === 'naveensln' && res.source === 'tenant-hostname' && !res.isPlatform && !res.isUnknownTenant,
+    'https://naveensln.atly.in resolves to tenant naveensln',
+    res
+  );
+}
+
+// 32. rahulbau.atly.in -> tenant rahulbau
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'rahulbau.atly.in',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'rahulbau', name: 'rahulbau', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.tenantId === 'rahulbau' && res.source === 'tenant-hostname' && !res.isPlatform && !res.isUnknownTenant,
+    'https://rahulbau.atly.in resolves to tenant rahulbau',
+    res
+  );
+}
+
+// 33. Arbitrary future tenant testtenant.atly.in resolves dynamically from Firestore without hardcoded map
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'testtenant.atly.in',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'testtenant', name: 'Test Tenant Studio', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.tenantId === 'testtenant' && res.source === 'tenant-hostname' && !res.isPlatform && !res.isUnknownTenant,
+    'https://testtenant.atly.in resolves dynamically to testtenant without hardcoded mapping',
+    res
+  );
+}
+
+// 34. Unregistered subdomain unregistered.atly.in returns isUnknownTenant: true (never fallback to Khushi)
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'unregistered.atly.in',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.isUnknownTenant === true && res.tenantId === null && res.source === 'unknown',
+    'https://unregistered.atly.in returns isUnknownTenant: true with null tenantId',
+    res
+  );
+}
+
+// 35. VITE_TENANT_ID is safely bypassed on shared wildcard host atly.in / *.atly.in
+{
+  const resPlatform = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'atly.in',
+    viteTenantIdOverride: 'khushi',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    resPlatform.isPlatform === true && resPlatform.tenantId === null,
+    'VITE_TENANT_ID cannot force apex atly.in away from platform',
+    resPlatform
+  );
+
+  const resSubdomain = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'naveensln.atly.in',
+    viteTenantIdOverride: 'khushi',
+    clientsRegistry: [
+      { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+      { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    resSubdomain.tenantId === 'naveensln',
+    'VITE_TENANT_ID cannot override dynamic wildcard subdomain naveensln.atly.in',
+    resSubdomain
+  );
+}
+
+// 36. Existing khushimakeupart.vercel.app continues to resolve to khushi-makeup-arts
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    clientsRegistry: [
+      { id: 'khushi-makeup-arts', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  assert(
+    res.tenantId === 'khushi-makeup-arts' && res.source === 'tenant-hostname',
+    'Existing khushimakeupart.vercel.app continues working and resolves to khushi-makeup-arts',
+    res
+  );
+}
+
+// 37. Metadata consistency: khushi tenant record has storefrontUrl: https://khushi.atly.in and deploymentStatus: live
+{
+  assert(
+    DEFAULT_MAIN_CLIENT.id === 'khushi' &&
+    DEFAULT_MAIN_CLIENT.storefrontUrl === 'https://khushi.atly.in' &&
+    DEFAULT_MAIN_CLIENT.deploymentStatus === 'live' &&
+    DEFAULT_MAIN_CLIENT.active === true,
+    'khushi tenant metadata has storefrontUrl: https://khushi.atly.in and deploymentStatus: live',
+    DEFAULT_MAIN_CLIENT
+  );
+}
+
+// 38. Metadata consistency: naveensln tenant record has storefrontUrl: https://naveensln.atly.in and deploymentStatus: live
+{
+  const naveenslnRecord: ClientTenantSummary = {
+    id: 'naveensln',
+    name: 'naveenSLN',
+    founder: 'Naveen',
+    city: 'noida',
+    phone: '8809261324',
+    instagram: '@osmtechies',
+    invitedOwnerEmail: 'n1999naveenkr@gmail.com',
+    storefrontUrl: 'https://naveensln.atly.in',
+    deploymentStatus: 'live',
+    active: true,
+    status: 'active',
+    createdAt: '2026-09-27T17:19:19.944Z',
+    updatedAt: new Date().toISOString(),
+  };
+
+  const parsedUrl = new URL(naveenslnRecord.storefrontUrl!);
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: parsedUrl.hostname,
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, naveenslnRecord],
+  });
+
+  assert(
+    naveenslnRecord.storefrontUrl === 'https://naveensln.atly.in' &&
+    naveenslnRecord.deploymentStatus === 'live' &&
+    res.tenantId === 'naveensln' &&
+    res.source === 'tenant-hostname',
+    'naveensln tenant metadata is consistent (https://naveensln.atly.in, live) and resolves correctly',
+    { naveenslnRecord, res }
+  );
+}
+
+// 39. Metadata consistency: rahulbau tenant record has storefrontUrl: https://rahulbau.atly.in and deploymentStatus: live
+{
+  const rahulbauRecord: ClientTenantSummary = {
+    id: 'rahulbau',
+    name: 'rahulbau',
+    founder: 'rahulbau',
+    city: 'Patnaq',
+    phone: '880929261324',
+    instagram: '@osmtechines',
+    invitedOwnerEmail: 'nks.earning@gmail.com',
+    storefrontUrl: 'https://rahulbau.atly.in',
+    deploymentStatus: 'live',
+    active: true,
+    status: 'active',
+    createdAt: '2026-09-28T03:52:55.241Z',
+    updatedAt: new Date().toISOString(),
+  };
+
+  const parsedUrl = new URL(rahulbauRecord.storefrontUrl!);
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: parsedUrl.hostname,
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, rahulbauRecord],
+  });
+
+  assert(
+    rahulbauRecord.storefrontUrl === 'https://rahulbau.atly.in' &&
+    rahulbauRecord.deploymentStatus === 'live' &&
+    res.tenantId === 'rahulbau' &&
+    res.source === 'tenant-hostname',
+    'rahulbau tenant metadata is consistent (https://rahulbau.atly.in, live) and resolves correctly',
+    { rahulbauRecord, res }
+  );
+}
+
+// 40. Auto-enrichment logic: unmigrated tenant records are enriched with https://<id>.atly.in and live deployment status
+{
+  const rawRecord: ClientTenantSummary = {
+    id: 'any-new-salon',
+    name: 'Any New Salon',
+    founder: 'Artist',
+    city: 'Ranchi',
+    phone: '9999999999',
+    instagram: '@anysalon',
+    active: true,
+    status: 'active',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  };
+
+  const expectedUrl = `https://${rawRecord.id}.atly.in`;
+  const enriched: ClientTenantSummary = {
+    ...rawRecord,
+    storefrontUrl: rawRecord.storefrontUrl || expectedUrl,
+    deploymentStatus: rawRecord.deploymentStatus || 'live',
+  };
+
+  const parsedUrl = new URL(enriched.storefrontUrl);
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: parsedUrl.hostname,
+    clientsRegistry: [enriched],
+  });
+
+  assert(
+    enriched.storefrontUrl === 'https://any-new-salon.atly.in' &&
+    enriched.deploymentStatus === 'live' &&
+    res.tenantId === 'any-new-salon',
+    'Unmigrated tenant records automatically enrich with wildcard *.atly.in URL and live deployment status',
+    { enriched, res }
   );
 }
 
