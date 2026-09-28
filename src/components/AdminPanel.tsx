@@ -56,6 +56,9 @@ import { useSiteContent } from '../context/ContentContext';
 import { useAuth } from '../context/AuthContext';
 import { useTenant } from '../context/TenantContext';
 import { authorizationService } from '../services/auth/AuthorizationService';
+import { contentService } from '../services/content';
+import { bookingService } from '../services/booking/BookingService';
+import { enquiryService } from '../services/enquiry/EnquiryService';
 import { SiteContent, SectionVisibilityConfig, DEFAULT_OFFER_POPUP } from '../data/siteContent';
 import { PortfolioCategory, PortfolioModel } from '../data/portfolioData';
 import {
@@ -90,6 +93,7 @@ import { SlideToggle } from './ui/SlideToggle';
 interface AdminPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  adminTenantId?: string;
 }
 
 type TabType =
@@ -113,7 +117,7 @@ type TabType =
   | 'seo'
   | 'export';
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, adminTenantId: propAdminTenantId }) => {
   const {
     content,
     saveContent,
@@ -134,11 +138,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     updateAppointmentStatus,
     deleteAppointment,
     isModuleEnabled,
-    appointments,
-    enquiries,
+    appointments: contextAppointments,
+    enquiries: contextEnquiries,
   } = useSiteContent();
   const { user, logout } = useAuth();
   const { role, isDeveloper, assignedClientId } = useTenant();
+
+  const effectiveAdminTenantId = (
+    propAdminTenantId ||
+    (role === 'client' && assignedClientId ? assignedClientId : activeClientId)
+  ).trim().toLowerCase();
+
+  // Scoped appointments & enquiries for the administered tenant
+  const [appointments, setScopedAppointments] = useState<AppointmentItem[]>(contextAppointments);
+  const [enquiries, setScopedEnquiries] = useState<EnquiryItem[]>(contextEnquiries);
 
   // Local draft state for editing before saving
   const [draft, setDraft] = useState<SiteContent>(content);
@@ -366,17 +379,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
     showNotice('success', 'Enquiries exported to CSV!');
   };
 
-  // Keep draft in sync if content updates from external
+  // Synchronize content draft with effective admin tenant
   React.useEffect(() => {
-    setDraft(content);
-  }, [content]);
+    if (!isOpen) return;
 
-  // Lock assigned client if logged in as client editor (only when admin panel is active)
-  React.useEffect(() => {
-    if (isOpen && assignedClientId && activeClientId !== assignedClientId) {
-      setActiveClientId(assignedClientId);
+    if (effectiveAdminTenantId === activeClientId) {
+      setDraft(content);
+      return;
     }
-  }, [isOpen, assignedClientId, activeClientId, setActiveClientId]);
+
+    let isMounted = true;
+    contentService.getContent(effectiveAdminTenantId).then((tenantContent) => {
+      if (isMounted) setDraft(tenantContent);
+    }).catch((err) => {
+      console.warn(`[AdminPanel] Could not load content for ${effectiveAdminTenantId}:`, err);
+    });
+
+    const unsub = contentService.subscribeContent(
+      effectiveAdminTenantId,
+      (remoteContent) => {
+        if (isMounted) setDraft(remoteContent);
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      if (unsub) unsub();
+    };
+  }, [isOpen, effectiveAdminTenantId, activeClientId, content]);
+
+  // Synchronize appointments and enquiries for effective admin tenant
+  React.useEffect(() => {
+    if (!isOpen) return;
+
+    if (effectiveAdminTenantId === activeClientId) {
+      setScopedAppointments(contextAppointments);
+      setScopedEnquiries(contextEnquiries);
+      return;
+    }
+
+    let isMounted = true;
+    const unsubAppts = bookingService.subscribeAppointments(
+      effectiveAdminTenantId,
+      (list) => {
+        if (isMounted) setScopedAppointments(list);
+      }
+    );
+    const unsubEnqs = enquiryService.subscribeEnquiries(
+      effectiveAdminTenantId,
+      (list) => {
+        if (isMounted) setScopedEnquiries(list);
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      if (unsubAppts) unsubAppts();
+      if (unsubEnqs) unsubEnqs();
+    };
+  }, [isOpen, effectiveAdminTenantId, activeClientId, contextAppointments, contextEnquiries]);
 
   // Ensure client cannot remain on export tab
   React.useEffect(() => {
@@ -432,7 +493,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
   const handleCopyClientLink = (clientId: string) => {
     const origin = window.location.origin;
-    const url = clientId === 'khushi' ? origin : `${origin}/?client=${clientId}`;
+    const client = clientsList.find((c) => c.id === clientId);
+    const isDev = origin.includes('localhost') || origin.includes('127.0.0.1');
+    const url = client?.storefrontUrl || (clientId === 'khushi' ? origin : (isDev ? `${origin}/?client=${clientId}` : `https://${clientId}.vercel.app`));
     navigator.clipboard.writeText(url);
     setCopiedClientId(clientId);
     setTimeout(() => setCopiedClientId(null), 2500);
@@ -441,7 +504,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
   const handleCopyAdminLink = (clientId: string) => {
     const origin = window.location.origin;
-    const url = clientId === 'khushi' ? `${origin}/#myadminpanel` : `${origin}/?client=${clientId}#myadminpanel`;
+    const client = clientsList.find((c) => c.id === clientId);
+    const isDev = origin.includes('localhost') || origin.includes('127.0.0.1');
+    const base = client?.storefrontUrl || (clientId === 'khushi' ? origin : (isDev ? `${origin}/?client=${clientId}` : `https://${clientId}.vercel.app`));
+    const url = `${base}/#myadminpanel`;
     navigator.clipboard.writeText(url);
     setCopiedClientId(`admin_${clientId}`);
     setTimeout(() => setCopiedClientId(null), 2500);
@@ -522,7 +588,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
 
       const payload = { ...draft, brand: updatedBrand };
       setDraft(payload);
-      const res = await saveContent(payload);
+      const res = await saveContent(payload, effectiveAdminTenantId);
       if (res.success) {
         setJustSaved(true);
         setTimeout(() => setJustSaved(false), 3000);
@@ -793,7 +859,7 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
         <div className="bg-gradient-to-r from-purple-950 via-[#271035] to-purple-950 border-b border-purple-500/40 px-6 py-2.5 flex items-center justify-between text-xs text-purple-200 shrink-0">
           <div className="flex items-center gap-2 font-medium">
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-purple-500/30 text-purple-300 font-bold text-[11px]">🔧</span>
-            <span>Master Developer Mode: Managing <strong className="text-white font-semibold">{draft.brand.name}</strong> (<code className="text-purple-300">{activeClientId}</code>)</span>
+            <span>Master Developer Mode: Managing <strong className="text-white font-semibold">{draft.brand.name}</strong> (<code className="text-purple-300">{effectiveAdminTenantId}</code>)</span>
           </div>
           <button
             onClick={() => {
@@ -839,10 +905,16 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
             Salon: <strong className="text-[#fed488]">{draft.brand.name}</strong>
           </span>
           <span className="text-[10px] text-purple-300 bg-purple-950/60 px-2 py-0.5 rounded-full border border-purple-500/30 font-mono">
-            {activeClientId}
+            {effectiveAdminTenantId}
           </span>
           <a
-            href={activeClientId === 'khushi' ? '/' : `/?client=${activeClientId}`}
+            href={(() => {
+              const client = clientsList.find((c) => c.id === effectiveAdminTenantId);
+              if (client?.storefrontUrl) return client.storefrontUrl;
+              if (effectiveAdminTenantId === 'khushi') return '/';
+              const isDev = typeof window !== 'undefined' && (window.location.hostname.includes('localhost') || window.location.hostname.includes('127.0.0.1'));
+              return isDev ? `/?client=${effectiveAdminTenantId}` : `https://${effectiveAdminTenantId}.vercel.app`;
+            })()}
             target="_blank"
             rel="noopener noreferrer"
             className="p-1 hover:bg-white/10 text-[#fed488] hover:text-white rounded-lg transition-colors ml-1"
@@ -1261,7 +1333,7 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
                 showNotice('success', 'Staff roster updated! Click "Save & Publish Live" to persist.');
               }}
               onUploadPhoto={processAndUploadFile}
-              tenantId={activeClientId}
+              tenantId={effectiveAdminTenantId}
             />
           )}
 

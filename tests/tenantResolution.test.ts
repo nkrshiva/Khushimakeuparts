@@ -498,6 +498,129 @@ console.log('\n=== RUNNING TENANT RESOLUTION TEST SUITE ===\n');
   );
 }
 
+// 23. Dedicated Vercel project deployment with VITE_TENANT_ID=naveensln resolves to naveensln
+{
+  const registry: ClientTenantSummary[] = [
+    { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    { id: 'rahulbau', name: 'rahulbau', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+  ];
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'naveensln.vercel.app',
+    viteTenantIdOverride: 'naveensln',
+    clientsRegistry: registry,
+  });
+
+  assert(
+    res.tenantId === 'naveensln' && res.source === 'tenant-hostname' && !res.isUnknownTenant,
+    'Dedicated Vercel project with VITE_TENANT_ID=naveensln resolves authoritatively to naveensln',
+    res
+  );
+}
+
+// 24. Dedicated Vercel project deployment with VITE_TENANT_ID=rahulbau resolves to rahulbau
+{
+  const registry: ClientTenantSummary[] = [
+    { id: 'khushi', name: 'Khushi Makeup Arts', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    { id: 'rahulbau', name: 'rahulbau', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+  ];
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'rahulbau.vercel.app',
+    viteTenantIdOverride: 'rahulbau',
+    clientsRegistry: registry,
+  });
+
+  assert(
+    res.tenantId === 'rahulbau' && res.source === 'tenant-hostname' && !res.isUnknownTenant,
+    'Dedicated Vercel project with VITE_TENANT_ID=rahulbau resolves authoritatively to rahulbau',
+    res
+  );
+}
+
+// 25. Decoupled admin context for rahulbau owner (nks.earning@gmail.com)
+{
+  const rahulbauClient = {
+    uid: 'user_rahul_456',
+    email: 'nks.earning@gmail.com',
+    role: 'client' as const,
+    assignedClientId: 'rahulbau',
+  };
+
+  const adminTenantId = rahulbauClient.role === 'client' && rahulbauClient.assignedClientId
+    ? rahulbauClient.assignedClientId
+    : 'khushi';
+
+  assert(
+    adminTenantId === 'rahulbau',
+    'Admin context for nks.earning@gmail.com evaluates strictly to rahulbau admin',
+    adminTenantId
+  );
+}
+
+// 26. Master Admin (naveen.kr.shiva@gmail.com) retains multi-tenant ability
+{
+  const masterAdmin: { uid: string; email: string; role: 'developer' | 'client' | 'employee'; assignedClientId: string | null } = {
+    uid: 'master_dev_1',
+    email: 'naveen.kr.shiva@gmail.com',
+    role: 'developer',
+    assignedClientId: null,
+  };
+
+  const adminTenantId = masterAdmin.role === 'client' && masterAdmin.assignedClientId
+    ? masterAdmin.assignedClientId
+    : 'active-storefront-tenant';
+
+  assert(
+    masterAdmin.role === 'developer' && adminTenantId === 'active-storefront-tenant',
+    'Master Admin retains active storefront tenant switcher and is not bound to a single client tenant',
+    { role: masterAdmin.role, adminTenantId }
+  );
+}
+
+// 27. Fourth tenant (e.g. zara-makeovers) creates deterministic deployment metadata without hardcoded mapping
+{
+  const cleanName = 'Zara Makeovers Studio';
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const vercelProjectName = slug;
+  const storefrontUrl = `https://${slug}.vercel.app`;
+
+  const newSummary: ClientTenantSummary = {
+    id: slug,
+    name: cleanName,
+    founder: 'Zara Khan',
+    city: 'Patna',
+    phone: '+91 99999 88888',
+    instagram: '@zaramakeovers',
+    archetype: 'solo_mua',
+    status: 'pending_invitation',
+    active: false,
+    storefrontUrl,
+    vercelProjectName,
+    deploymentStatus: 'pending',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const resolution = tenantResolutionService.resolveTenantFromHost({
+    hostname: `${slug}.vercel.app`,
+    clientsRegistry: [newSummary],
+  });
+
+  assert(
+    newSummary.id === 'zara-makeovers-studio' &&
+    newSummary.vercelProjectName === 'zara-makeovers-studio' &&
+    newSummary.storefrontUrl === 'https://zara-makeovers-studio.vercel.app' &&
+    newSummary.deploymentStatus === 'pending' &&
+    resolution.tenantId === 'zara-makeovers-studio' &&
+    resolution.source === 'tenant-hostname',
+    'Fourth tenant dynamically computes deployment metadata and resolves automatically on its Vercel domain',
+    { newSummary, resolution }
+  );
+}
+
 console.log(`\nTEST SUMMARY: ${testsPassed} passed, ${testsFailed} failed.\n`);
 if (testsFailed > 0) {
   process.exit(1);

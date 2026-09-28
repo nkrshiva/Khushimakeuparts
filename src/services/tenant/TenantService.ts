@@ -219,6 +219,11 @@ export class TenantService {
       const rawEmail = tenantData.invitedOwnerEmail?.trim();
       const cleanInvitedEmail = rawEmail ? rawEmail.toLowerCase() : undefined;
 
+      const vercelProjectName = id;
+      const designatedStorefrontUrl = cleanCustomDomain
+        ? `https://${cleanCustomDomain}`
+        : `https://${id}.vercel.app`;
+
       const newSummary: ClientTenantSummary = {
         id,
         name: cleanName,
@@ -229,6 +234,9 @@ export class TenantService {
         archetype: tenantData.archetype || 'solo_mua',
         status: 'pending_invitation',
         active: false,
+        storefrontUrl: designatedStorefrontUrl,
+        vercelProjectName,
+        deploymentStatus: 'pending',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         ...(cleanCustomDomain ? { customDomain: cleanCustomDomain } : {}),
@@ -400,6 +408,47 @@ export class TenantService {
     existingRegistry: ClientTenantSummary[]
   ): Promise<SetTenantStatusResult> {
     return this.setTenantLifecycleStatus(role, id, active ? 'active' : 'suspended', existingRegistry);
+  }
+
+  /**
+   * Updates tenant Vercel deployment status and storefront URL.
+   * STRICT SECURITY: Only Platform Developers can alter deployment status.
+   */
+  async updateTenantDeployment(
+    role: TenantRole,
+    id: string,
+    deployment: {
+      deploymentStatus: 'pending' | 'live' | 'error';
+      storefrontUrl?: string;
+      vercelProjectName?: string;
+    },
+    existingRegistry: ClientTenantSummary[]
+  ): Promise<SetTenantStatusResult> {
+    if (!authorizationService.canManageTenantLifecycle(role)) {
+      return { success: false, error: 'Unauthorized: Only developers can update deployment status.' };
+    }
+
+    try {
+      const now = new Date().toISOString();
+      const updates = {
+        deploymentStatus: deployment.deploymentStatus,
+        ...(deployment.storefrontUrl ? { storefrontUrl: deployment.storefrontUrl } : {}),
+        ...(deployment.vercelProjectName ? { vercelProjectName: deployment.vercelProjectName } : {}),
+        updatedAt: now,
+      };
+
+      await this.repository.saveTenant(id, updates, true);
+
+      const updatedList = existingRegistry.map((c) =>
+        c.id === id ? { ...c, ...updates } : c
+      );
+      await this.repository.saveClientsRegistry(updatedList);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Failed to update tenant deployment status:', err);
+      return { success: false, error: err?.message || 'Failed to update deployment status' };
+    }
   }
 
   /**

@@ -24,6 +24,7 @@ export interface ResolveTenantOptions {
   clientsRegistry?: ClientTenantSummary[];
   platformHostnames?: string[];
   isDevelopmentOverride?: boolean;
+  viteTenantIdOverride?: string;
 }
 
 /**
@@ -44,10 +45,6 @@ const DEFAULT_PLATFORM_HOSTNAMES = [
 const CANONICAL_TENANT_HOSTNAME_MAP: Record<string, string> = {
   'khushimakeupart': 'khushi-makeup-arts',
   'khushimakeuparts': 'khushi-makeup-arts',
-  'fatimafacearts': 'fatima-face-arts',
-  'fatima-face-arts': 'fatima-face-arts',
-  'nidhiglam': 'nidhi-glam',
-  'nidhi-glam': 'nidhi-glam',
 };
 
 /**
@@ -91,6 +88,26 @@ export function isDevelopmentHostname(hostname: string): boolean {
     host.endsWith('.local') ||
     host.endsWith('.test')
   );
+}
+
+/**
+ * Retrieves the build-time dedicated tenant ID configured via VITE_TENANT_ID or TENANT_ID.
+ * Baked into production Vercel project deployments.
+ */
+export function getBuildTimeTenantId(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    const raw = (import.meta.env as any).VITE_TENANT_ID;
+    if (raw && typeof raw === 'string') {
+      return raw.trim().toLowerCase();
+    }
+  }
+  if (typeof process !== 'undefined' && process.env) {
+    const raw = process.env.VITE_TENANT_ID || process.env.TENANT_ID;
+    if (raw && typeof raw === 'string') {
+      return raw.trim().toLowerCase();
+    }
+  }
+  return '';
 }
 
 /**
@@ -179,8 +196,32 @@ export class TenantResolutionService {
       }
     } catch {}
 
-    // ─── 1. LOCAL DEVELOPMENT RESOLUTION ─────────────────────────────────────
+    // ─── 0.5 DEDICATED BUILD-TIME TENANT IDENTITY (VITE_TENANT_ID) ───────────
+    // When a Vercel project is deployed for a specific tenant, VITE_TENANT_ID
+    // identifies the project authoritatively at build time.
     const isDev = options.isDevelopmentOverride ?? isDevelopmentHostname(host);
+    const buildTenantId = options.viteTenantIdOverride !== undefined
+      ? options.viteTenantIdOverride.trim().toLowerCase()
+      : getBuildTimeTenantId();
+
+    if (buildTenantId && !isDev) {
+      const matchedClient = clients.find(
+        (c) => c.id.toLowerCase() === buildTenantId ||
+          (buildTenantId === 'khushi' && c.id === 'khushi-makeup-arts') ||
+          (buildTenantId === 'khushi-makeup-arts' && c.id === 'khushi')
+      );
+      const resolvedTenantId = matchedClient ? matchedClient.id : buildTenantId;
+      return {
+        tenantId: resolvedTenantId,
+        source: 'tenant-hostname',
+        isPlatform: false,
+        isUnknownTenant: false,
+        matchedDomain: host,
+        matchedClient: matchedClient || null,
+      };
+    }
+
+    // ─── 1. LOCAL DEVELOPMENT RESOLUTION ─────────────────────────────────────
     if (isDev) {
       // Development mode supports ?client=, hash, and localStorage for fast local testing
       // 1. URL search param ?client=
@@ -248,13 +289,13 @@ export class TenantResolutionService {
       } catch {}
 
       // 4. Default development fallback
-      const defaultId = clients[0]?.id || 'khushi-makeup-arts';
+      const defaultId = buildTenantId || clients[0]?.id || 'khushi-makeup-arts';
       return {
         tenantId: defaultId,
         source: 'development',
         isPlatform: false,
         isUnknownTenant: false,
-        matchedClient: clients[0] || null,
+        matchedClient: clients.find((c) => c.id === defaultId) || clients[0] || null,
       };
     }
 

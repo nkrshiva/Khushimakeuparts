@@ -343,7 +343,7 @@ function MainWebsite({ onOpenLogin, onOpenAdminPanel }: MainWebsiteProps) {
 
 function AppShell() {
   const { user } = useAuth();
-  const { role, isDeveloper, identity, refreshTenant } = useTenant();
+  const { role, isDeveloper, identity, refreshTenant, assignedClientId } = useTenant();
   const { activeClientId, setActiveClientId, isUnknownTenant, tenantResolution } = useSiteContent();
 
   // Active view: 'platform' | 'storefront'
@@ -437,7 +437,9 @@ function AppShell() {
       console.warn('[Invitation Flow] Error refreshing tenant state post-acceptance:', err);
     }
 
-    setActiveClientId(tenantId);
+    if (tenantResolution?.source === 'development' || tenantResolution?.isPlatform) {
+      setActiveClientId(tenantId);
+    }
     setIsAdminPanelOpen(true);
   };
 
@@ -465,8 +467,10 @@ function AppShell() {
         setIsMasterAdminOpen(true);
         break;
       case 'TENANT_ADMIN':
-        if (resIdentity.type === 'TENANT_OWNER' && resIdentity.tenantId) {
-          setActiveClientId(resIdentity.tenantId);
+        if (tenantResolution?.source === 'development' || tenantResolution?.isPlatform) {
+          if (resIdentity.type === 'TENANT_OWNER' && resIdentity.tenantId) {
+            setActiveClientId(resIdentity.tenantId);
+          }
         }
         setIsAdminPanelOpen(true);
         break;
@@ -661,6 +665,7 @@ function AppShell() {
       {/* Scoped Tenant CMS Admin Panel */}
       <AdminPanel
         isOpen={isAdminPanelOpen}
+        adminTenantId={role === 'client' && assignedClientId ? assignedClientId : activeClientId}
         onClose={() => {
           setIsAdminPanelOpen(false);
           cleanAdminHash();

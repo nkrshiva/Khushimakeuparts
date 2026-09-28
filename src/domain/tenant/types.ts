@@ -86,6 +86,9 @@ export interface ClientTenantSummary {
   phone: string; // WhatsApp / Phone
   instagram: string; // Instagram handle
   customDomain?: string; // Optional custom domain or subdomain
+  storefrontUrl?: string; // Authoritative production storefront URL (e.g. 'https://naveensln.vercel.app' or custom domain)
+  vercelProjectName?: string; // Dedicated Vercel project name
+  deploymentStatus?: 'pending' | 'live' | 'error'; // Vercel project deployment status
   archetype?: BusinessArchetype; // Tenant archetype preset (solo_mua, hair_salon, beauty_parlour, hybrid_atelier)
   status?: TenantLifecycleStatus; // 'active' | 'suspended' | 'archived' | 'pending_invitation'
   active: boolean; // Whether the site is live (alias for status === 'active')
@@ -175,6 +178,9 @@ export const DEFAULT_MAIN_CLIENT: ClientTenantSummary = {
   phone: '+91 91621 43273',
   instagram: '@khushimakeuparts',
   customDomain: 'khushimakeupart.vercel.app',
+  storefrontUrl: 'https://khushimakeupart.vercel.app',
+  vercelProjectName: 'khushimakeupart',
+  deploymentStatus: 'live',
   archetype: 'solo_mua',
   status: 'active',
   active: true,

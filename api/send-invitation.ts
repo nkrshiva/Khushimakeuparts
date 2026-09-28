@@ -191,8 +191,9 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 9. Read tenant name for email presentation
+    // 9. Read tenant name & storefront URL for email presentation and invitation link
     let tenantName = invitation.clientId;
+    let tenantStorefrontUrl = '';
     try {
       const clientUrl = `${firestoreBase}/clients/${encodeURIComponent(invitation.clientId)}`;
       const clientRes = await fetch(clientUrl, {
@@ -204,13 +205,19 @@ export default async function handler(req: any, res: any) {
         if (clientData.name) {
           tenantName = clientData.name;
         }
+        if (clientData.storefrontUrl && typeof clientData.storefrontUrl === 'string') {
+          tenantStorefrontUrl = clientData.storefrontUrl.trim();
+        } else if (clientData.customDomain && typeof clientData.customDomain === 'string') {
+          tenantStorefrontUrl = `https://${clientData.customDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')}`;
+        }
       }
     } catch {
       // Non-fatal fallback to clientId
     }
 
     // 10. Construct secure invitation URL
-    const appBaseUrl = origin || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://khushimakeuparts865.web.app';
+    // If the tenant has an authoritative storefrontUrl or custom domain, use it; otherwise fallback to origin
+    const appBaseUrl = tenantStorefrontUrl || origin || process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://khushimakeuparts865.web.app';
     const cleanOrigin = appBaseUrl.replace(/\/+$/, '');
     const inviteUrlLink = `${cleanOrigin}/?inviteId=${encodeURIComponent(invitationId)}&token=${encodeURIComponent(authoritativeToken)}&client=${encodeURIComponent(invitation.clientId)}`;
 
