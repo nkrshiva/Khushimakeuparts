@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles,
   Building2,
@@ -42,6 +42,9 @@ export const InvitationAcceptanceModal: React.FC<InvitationAcceptanceModalProps>
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
   const [isAcceptedSuccess, setIsAcceptedSuccess] = useState(false);
+
+  // Single-execution guard for auto promptAuth redirect flow
+  const hasPromptedAuthRef = useRef(false);
 
   // Load tenant hint or invitation details
   useEffect(() => {
@@ -119,16 +122,74 @@ export const InvitationAcceptanceModal: React.FC<InvitationAcceptanceModalProps>
     };
   }, [isOpen, invitationId, clientIdHint, user]);
 
-  if (!isOpen) return null;
+  // Auto-initiate Google sign-in when arriving at apex gateway with ?promptAuth=true
+  useEffect(() => {
+    if (!isOpen || !invitationId || user || loading) return;
+    if (hasPromptedAuthRef.current) return;
+
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('promptAuth') === 'true') {
+        hasPromptedAuthRef.current = true;
+        // Clean promptAuth parameter from current URL so it only triggers once
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('promptAuth');
+        window.history.replaceState({}, '', cleanUrl.toString());
+
+        // Initiate sign-in on authorized apex platform
+        handleGoogleSignIn();
+      }
+    } catch (e) {
+      console.warn('[InvitationAcceptanceModal] Could not parse promptAuth parameter:', e);
+    }
+  }, [isOpen, invitationId, user, loading]);
 
   // Handle Google Sign In
   const handleGoogleSignIn = async () => {
+    if (isSigningIn) return;
     setIsSigningIn(true);
     setErrorMessage(null);
+
+    // 1. Detect if current hostname is a tenant subdomain of atly.in (*.atly.in)
+    const host = window.location.hostname.toLowerCase();
+    const isAtlySubdomain = host.endsWith('.atly.in') && host !== 'atly.in' && host !== 'www.atly.in';
+
+    // 2. Before calling Firebase Google authentication, route through authorized apex gateway (https://atly.in).
+    // Firebase Authentication enforces strict origin checks and does not support wildcard authorized domains (*.atly.in).
+    // Apex atly.in is already authorized.
+    if (isAtlySubdomain) {
+      try {
+        const apexAuthUrl = new URL('https://atly.in/');
+        apexAuthUrl.searchParams.set('inviteId', invitationId.trim());
+        apexAuthUrl.searchParams.set('token', token.trim());
+        if (clientIdHint) {
+          apexAuthUrl.searchParams.set('client', clientIdHint.trim());
+        }
+        apexAuthUrl.searchParams.set('promptAuth', 'true');
+        window.location.href = apexAuthUrl.toString();
+        return;
+      } catch (err: any) {
+        console.error('[InvitationAcceptanceModal] Failed to redirect to apex gateway:', err);
+        setErrorMessage('Failed to connect to authentication gateway. Please try again.');
+        setIsSigningIn(false);
+        return;
+      }
+    }
+
     try {
-      await signInWithGoogle();
+      const res = await signInWithGoogle();
+      if (!res.success) {
+        console.warn('[InvitationAcceptanceModal:Diagnostic] Google sign-in unfulfilled:', {
+          error: res.error,
+          origin: window.location.origin,
+          hostname: window.location.hostname,
+        });
+        if (res.error) {
+          setErrorMessage(res.error);
+        }
+      }
     } catch (err: any) {
-      console.error('[InvitationAcceptanceModal] Google sign-in failed:', err);
+      console.error('[InvitationAcceptanceModal] Google sign-in exception:', err);
       setErrorMessage(err?.message || 'Google sign in failed. Please try again.');
     } finally {
       setIsSigningIn(false);

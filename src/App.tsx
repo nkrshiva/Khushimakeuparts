@@ -432,7 +432,8 @@ function AppShell() {
 
     const currentHost = window.location.hostname.toLowerCase();
     const isApexPlatform = currentHost === 'atly.in' || currentHost === 'www.atly.in';
-    const tenantTargetHost = `${tenantId}.atly.in`;
+    const compactSub = tenantId.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const tenantTargetHost = `${compactSub}.atly.in`;
 
     // Await authoritative tenant context resolution from /users/{uid}
     try {

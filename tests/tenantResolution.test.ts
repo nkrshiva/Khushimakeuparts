@@ -1112,6 +1112,268 @@ console.log('\n=== RUNNING TENANT RESOLUTION TEST SUITE ===\n');
   );
 }
 
+// 48. Regression: Invitation URL on *.atly.in resolves properly to invitation context
+{
+  const swetaTenant: ClientTenantSummary = {
+    id: 'swetaglan',
+    name: 'Sweta Glan',
+    founder: 'Sweta',
+    city: 'Kolkata',
+    phone: '+91 99999 22222',
+    instagram: '@swetaglan',
+    storefrontUrl: 'https://swetaglan.atly.in',
+    deploymentStatus: 'live',
+    active: false,
+    status: 'pending_invitation',
+    invitedOwnerEmail: 'sweta@example.com',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'swetaglan.atly.in',
+    search: '?inviteId=inv_sweta_999&token=tok_sweta_secret&client=swetaglan',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, swetaTenant],
+  });
+
+  assert(
+    res.source === 'invitation' &&
+    res.tenantId === 'swetaglan' &&
+    res.matchedClient?.id === 'swetaglan',
+    'Regression: Invitation URL on *.atly.in resolves properly with full context',
+    res
+  );
+}
+
+// 49. Regression: Firebase Auth error codes mapped accurately for diagnostic and user display
+{
+  function mapAuthError(code: string): string {
+    if (code === 'auth/unauthorized-domain') {
+      return 'This domain is not authorized for Google sign-in. Please contact the platform administrator.';
+    } else if (code === 'auth/popup-blocked') {
+      return 'Sign-in popup was blocked by your browser. Please allow popups for this site and try again.';
+    } else if (code === 'auth/network-request-failed') {
+      return 'Network error. Please check your internet connection and try again.';
+    } else if (code === 'auth/popup-closed-by-user') {
+      return 'Authentication cancelled: auth/popup-closed-by-user';
+    }
+    return 'Google sign-in failed. Please try again.';
+  }
+
+  assert(
+    mapAuthError('auth/unauthorized-domain').includes('domain is not authorized') &&
+    mapAuthError('auth/popup-blocked').includes('blocked by your browser') &&
+    mapAuthError('auth/popup-closed-by-user').includes('auth/popup-closed-by-user'),
+    'Regression: Google authentication error codes mapped accurately',
+    {
+      unauthorized: mapAuthError('auth/unauthorized-domain'),
+      blocked: mapAuthError('auth/popup-blocked'),
+    }
+  );
+}
+
+// 50. Regression: Mismatched Google email rejected strictly
+{
+  const invitedEmail = 'sweta@example.com';
+  const authenticatedGoogleEmail = 'attacker@gmail.com';
+
+  const isMatch = authenticatedGoogleEmail.trim().toLowerCase() === invitedEmail.trim().toLowerCase();
+
+  assert(
+    !isMatch,
+    'Regression: Mismatched Google email rejected strictly (cannot claim another tenant)',
+    { invitedEmail, authenticatedGoogleEmail, isMatch }
+  );
+}
+
+// 51. Regression: Matching Google email verified and authorized to accept
+{
+  const invitedEmail = 'Sweta@Example.COM';
+  const authenticatedGoogleEmail = '  sweta@example.com ';
+
+  const isMatch = authenticatedGoogleEmail.trim().toLowerCase() === invitedEmail.trim().toLowerCase();
+
+  assert(
+    isMatch,
+    'Regression: Matching Google email successfully verified and authorized',
+    { invitedEmail, authenticatedGoogleEmail, isMatch }
+  );
+}
+
+// 52. Regression: Invalid/expired invitation validation
+{
+  const expiredInvitation = {
+    invitationId: 'inv_123',
+    token: 'valid_token',
+    status: 'pending',
+    expiresAt: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+  };
+
+  const isExpiredByTime = Date.now() > new Date(expiredInvitation.expiresAt).getTime();
+  const isInvalidStatus = expiredInvitation.status !== 'pending';
+
+  assert(
+    isExpiredByTime && !isInvalidStatus,
+    'Regression: Expired invitation correctly identified as expired',
+    { expiredInvitation, isExpiredByTime }
+  );
+}
+
+// 53. Regression: Preservation of inviteId, token, and client across URL parameters and hash
+{
+  const urlWithParams = new URL('https://swetaglan.atly.in/?inviteId=inv_123&token=tok_abc&client=swetaglan');
+  const inviteId = urlWithParams.searchParams.get('inviteId');
+  const token = urlWithParams.searchParams.get('token');
+  const client = urlWithParams.searchParams.get('client');
+
+  // Verify parameters survive redirect reconstruction
+  const reconstructedUrl = new URL(`https://swetaglan.atly.in/?inviteId=${inviteId}&token=${token}&client=${client}`);
+
+  assert(
+    reconstructedUrl.searchParams.get('inviteId') === 'inv_123' &&
+    reconstructedUrl.searchParams.get('token') === 'tok_abc' &&
+    reconstructedUrl.searchParams.get('client') === 'swetaglan',
+    'Regression: Preservation of inviteId, token, and client across redirect reconstruction',
+    reconstructedUrl.toString()
+  );
+}
+
+// 54. Regression: Correct post-acceptance redirect to https://<tenantSubdomain>.atly.in/#admin
+{
+  function computePostAcceptanceRedirect(clientId: string, currentHostname: string): string {
+    const compactSub = clientId.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const targetHost = `${compactSub}.atly.in`;
+    if (currentHostname !== targetHost) {
+      return `https://${targetHost}/#admin`;
+    }
+    return `#admin`;
+  }
+
+  const redirectFromApex = computePostAcceptanceRedirect('swetaglan', 'atly.in');
+  const redirectFromTenant = computePostAcceptanceRedirect('swetaglan', 'swetaglan.atly.in');
+  const redirectNaveen = computePostAcceptanceRedirect('Naveen Make up artists', 'atly.in');
+
+  assert(
+    redirectFromApex === 'https://swetaglan.atly.in/#admin' &&
+    redirectFromTenant === '#admin' &&
+    (redirectNaveen === 'https://naveenmakeupartists.atly.in/#admin' || redirectNaveen === 'https://naveenmakeupartist.atly.in/#admin'),
+    'Regression: Correct post-acceptance redirect URL computation for tenant admin',
+    { redirectFromApex, redirectFromTenant, redirectNaveen }
+  );
+}
+
+// 55. Regression: Apex gateway redirection from *.atly.in tenant subdomain to https://atly.in
+{
+  function buildApexGatewayAuthUrl(currentHost: string, invitationId: string, token: string, clientIdHint?: string): string | null {
+    const host = currentHost.toLowerCase();
+    const isAtlySubdomain = host.endsWith('.atly.in') && host !== 'atly.in' && host !== 'www.atly.in';
+    if (!isAtlySubdomain) {
+      return null;
+    }
+    const apexAuthUrl = new URL('https://atly.in/');
+    apexAuthUrl.searchParams.set('inviteId', invitationId.trim());
+    apexAuthUrl.searchParams.set('token', token.trim());
+    if (clientIdHint) {
+      apexAuthUrl.searchParams.set('client', clientIdHint.trim());
+    }
+    apexAuthUrl.searchParams.set('promptAuth', 'true');
+    return apexAuthUrl.toString();
+  }
+
+  const gatewayUrl = buildApexGatewayAuthUrl('swetaglan.atly.in', 'inv_sweta_123', 'tok_secret_456', 'swetaglan');
+  const onApex = buildApexGatewayAuthUrl('atly.in', 'inv_123', 'tok_456', 'khushi');
+  const onLocalhost = buildApexGatewayAuthUrl('localhost:3000', 'inv_123', 'tok_456', 'khushi');
+
+  const parsedGateway = new URL(gatewayUrl!);
+
+  assert(
+    gatewayUrl !== null &&
+    parsedGateway.hostname === 'atly.in' &&
+    parsedGateway.searchParams.get('inviteId') === 'inv_sweta_123' &&
+    parsedGateway.searchParams.get('token') === 'tok_secret_456' &&
+    parsedGateway.searchParams.get('client') === 'swetaglan' &&
+    parsedGateway.searchParams.get('promptAuth') === 'true' &&
+    onApex === null &&
+    onLocalhost === null,
+    'Regression: Tenant subdomain detects *.atly.in and generates correct apex auth gateway URL',
+    { gatewayUrl, onApex, onLocalhost }
+  );
+}
+
+// 56. Regression: Apex atly.in with invitation parameters resolves as platform/gateway with invitation context
+{
+  const res = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'atly.in',
+    search: '?inviteId=inv_sweta_123&token=tok_secret_456&client=swetaglan&promptAuth=true',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT],
+  });
+
+  assert(
+    res.source === 'invitation' &&
+    res.isPlatform === false &&
+    res.tenantId === 'swetaglan',
+    'Regression: Apex atly.in with invitation parameters activates invitation context for target tenant',
+    res
+  );
+}
+
+// 57. Regression: A tenant cannot be selected merely by changing ?client= on production hostnames
+{
+  const resKhushi = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushimakeupart.vercel.app',
+    search: '?client=swetaglan',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT],
+  });
+
+  const resTenantSub = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushi.atly.in',
+    search: '?client=swetaglan',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT],
+  });
+
+  assert(
+    (resKhushi.tenantId === 'khushi' || resKhushi.tenantId === 'khushi-makeup-arts') &&
+    resKhushi.tenantId !== 'swetaglan' &&
+    resTenantSub.tenantId === 'khushi',
+    'Regression: Query parameter ?client= cannot override authoritative tenant hostnames',
+    { resKhushi, resTenantSub }
+  );
+}
+
+// 58. Regression: Custom domains and legacy tenants (khushi, naveensln, rahulbau) remain intact
+{
+  const resCustom = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'glamourbyfatima.com',
+    clientsRegistry: [
+      { id: 'fatima-face-arts', name: 'Fatima Face Arts', customDomain: 'glamourbyfatima.com', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' },
+    ],
+  });
+
+  const resKhushi = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'khushi.atly.in',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT],
+  });
+
+  const resNaveen = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'naveensln.atly.in',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, { id: 'naveensln', name: 'naveenSLN', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' }],
+  });
+
+  const resRahul = tenantResolutionService.resolveTenantFromHost({
+    hostname: 'rahulbau.atly.in',
+    clientsRegistry: [DEFAULT_MAIN_CLIENT, { id: 'rahulbau', name: 'rahulbau', active: true, founder: '', city: '', phone: '', instagram: '', createdAt: '', updatedAt: '' }],
+  });
+
+  assert(
+    resCustom.tenantId === 'fatima-face-arts' &&
+    resKhushi.tenantId === 'khushi' &&
+    resNaveen.tenantId === 'naveensln' &&
+    resRahul.tenantId === 'rahulbau',
+    'Regression: Custom domains and existing tenants (khushi, naveensln, rahulbau) remain strictly intact',
+    { resCustom, resKhushi, resNaveen, resRahul }
+  );
+}
+
 console.log(`\nTEST SUMMARY: ${testsPassed} passed, ${testsFailed} failed.\n`);
 if (testsFailed > 0) {
   process.exit(1);

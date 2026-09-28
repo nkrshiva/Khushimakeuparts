@@ -35,9 +35,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, error: 'Authentication service is unavailable. Please verify Firebase configuration.' };
     }
 
+    const currentUserBefore = authService.getCurrentUser();
+    console.log('[AuthContext:Diagnostic] Initiating Google sign-in', {
+      origin: window.location.origin,
+      hostname: window.location.hostname,
+      currentUserBefore: currentUserBefore ? { uid: currentUserBefore.uid, email: currentUserBefore.email } : null,
+    });
+
     try {
       const userCred = await authService.signInWithGoogle();
       setUser(userCred.user);
+
+      console.log('[AuthContext:Diagnostic] Google sign-in succeeded', {
+        origin: window.location.origin,
+        hostname: window.location.hostname,
+        currentUserAfter: userCred.user ? { uid: userCred.user.uid, email: userCred.user.email } : null,
+      });
 
       try {
         localStorage.setItem(LOCAL_ADMIN_KEY, 'true');
@@ -45,13 +58,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return { success: true, user: userCred.user };
     } catch (err: any) {
+      console.error('[AuthContext:Diagnostic] Google sign-in failed', {
+        code: err?.code,
+        message: err?.message,
+        name: err?.name,
+        origin: window.location.origin,
+        hostname: window.location.hostname,
+        currentUserBefore: currentUserBefore ? { uid: currentUserBefore.uid, email: currentUserBefore.email } : null,
+      });
+
       // auth/popup-closed-by-user and auth/cancelled-popup-request are normal user cancellations
       // — do not surface them as errors to the user.
       if (
         err?.code === 'auth/popup-closed-by-user' ||
         err?.code === 'auth/cancelled-popup-request'
       ) {
-        return { success: false };
+        return { success: false, error: `Authentication cancelled: ${err?.code}` };
       }
 
       console.warn('[AuthContext] Google sign-in error code:', err?.code);
