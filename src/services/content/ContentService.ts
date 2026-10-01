@@ -112,9 +112,21 @@ export class ContentService implements IContentService {
       curatedPortfolio: Array.isArray(incoming.curatedPortfolio) && incoming.curatedPortfolio.length > 0
         ? incoming.curatedPortfolio
         : DEFAULT_SITE_CONTENT.curatedPortfolio,
-      testimonials: Array.isArray(incoming.testimonials) && incoming.testimonials.length > 0
+      testimonials: Array.isArray(incoming.testimonials)
         ? incoming.testimonials
         : DEFAULT_SITE_CONTENT.testimonials,
+      pendingReviews: Array.isArray(incoming.pendingReviews)
+        ? incoming.pendingReviews
+        : (DEFAULT_SITE_CONTENT.pendingReviews || []),
+      offerPopup: {
+        ...DEFAULT_SITE_CONTENT.offerPopup,
+        ...(incoming.offerPopup || {}),
+        images: Array.isArray(incoming.offerPopup?.images)
+          ? incoming.offerPopup.images
+          : (incoming.offerPopup?.imageUrl
+              ? [incoming.offerPopup.imageUrl]
+              : (DEFAULT_SITE_CONTENT.offerPopup?.images || [DEFAULT_SITE_CONTENT.offerPopup?.imageUrl || ''])),
+      },
       videos: Array.isArray(incoming.videos) && incoming.videos.length > 0
         ? incoming.videos
         : DEFAULT_SITE_CONTENT.videos,

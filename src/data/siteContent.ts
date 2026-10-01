@@ -167,6 +167,12 @@ export const DEFAULT_CALENDAR_AVAILABILITY: DateAvailabilityItem[] = [
 export const DEFAULT_OFFER_POPUP: OfferPopupConfig = {
   enabled: true,
   imageUrl: '/portfolio/model-01.jpg',
+  images: [
+    '/portfolio/model-01.jpg',
+    '/portfolio/model2-01.jpeg',
+    '/portfolio/model3-01.jpg',
+    '/portfolio/model4-01.jpg',
+  ],
   topBadgeText: 'Limited Festive Offer',
   topTitle: 'Special Bridal Booking Privilege',
   bottomHighlight: 'Flat 15% Off On Full Bridal Packages',

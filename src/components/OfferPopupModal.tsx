@@ -13,6 +13,27 @@ interface OfferPopupModalProps {
 
 const SESSION_STORAGE_KEY = 'platform_offer_popup_dismissed';
 
+// Module-level flag: once the popup has been scheduled/shown in this JS module lifetime
+// (i.e. the current browser session without a hard reload), we never schedule it again.
+// This is immune to React re-renders and Firestore snapshot identity changes.
+let _popupScheduledThisSession = false;
+
+export const getAvailablePopupImages = (cfg?: OfferPopupConfig): string[] => {
+  if (!cfg) return [];
+  const list: string[] = [];
+  if (Array.isArray(cfg.images)) {
+    for (const img of cfg.images) {
+      if (typeof img === 'string' && img.trim().length > 0) {
+        list.push(img.trim());
+      }
+    }
+  }
+  if (list.length === 0 && cfg.imageUrl && typeof cfg.imageUrl === 'string' && cfg.imageUrl.trim().length > 0) {
+    list.push(cfg.imageUrl.trim());
+  }
+  return list;
+};
+
 export const OfferPopupModal: React.FC<OfferPopupModalProps> = ({
   config,
   isOpenOverride,
@@ -20,9 +41,23 @@ export const OfferPopupModal: React.FC<OfferPopupModalProps> = ({
   onNavigateToBooking,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [activeImage, setActiveImage] = useState<string>('');
+
+  // Randomly select one image from available valid uploaded photos each time modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const available = getAvailablePopupImages(config);
+      if (available.length > 0) {
+        const picked = available[Math.floor(Math.random() * available.length)];
+        setActiveImage(picked);
+      } else {
+        setActiveImage('');
+      }
+    }
+  }, [isOpen, config]);
 
   useEffect(() => {
-    // If Admin Panel is previewing it directly
+    // Admin Panel live preview: bypass all session logic
     if (typeof isOpenOverride === 'boolean') {
       setIsOpen(isOpenOverride);
       return;
@@ -33,13 +68,23 @@ export const OfferPopupModal: React.FC<OfferPopupModalProps> = ({
       return;
     }
 
-    // Check session storage if showOncePerSession is enabled
+    // Once-per-session: if the popup was already scheduled or dismissed in this session, stop here.
+    // This check runs against BOTH the module-level flag AND sessionStorage so it survives
+    // re-renders caused by Firestore snapshot updates (which create new `config` object references).
     if (config.showOncePerSession !== false) {
-      const alreadyDismissed = sessionStorage.getItem(SESSION_STORAGE_KEY);
-      if (alreadyDismissed) {
-        setIsOpen(false);
-        return;
+      if (_popupScheduledThisSession) return;
+      try {
+        const alreadyDismissed = sessionStorage.getItem(SESSION_STORAGE_KEY);
+        if (alreadyDismissed) return;
+      } catch {
+        // sessionStorage not available (private browsing in some browsers)
       }
+    }
+
+    // Mark as scheduled before setting the timer so concurrent effect runs (caused by
+    // config reference identity changes from Firestore) don't schedule a second timer.
+    if (config.showOncePerSession !== false) {
+      _popupScheduledThisSession = true;
     }
 
     // Show after an elegant 1.2s delay after visitor lands on the site
@@ -48,7 +93,10 @@ export const OfferPopupModal: React.FC<OfferPopupModalProps> = ({
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, [config, isOpenOverride]);
+    // NOTE: intentionally NOT including `config` in deps — only run on mount.
+    // Config identity changes from Firestore re-subscriptions must not re-trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpenOverride]);
 
   const handleClose = useCallback(() => {
     setIsOpen(false);
@@ -169,9 +217,9 @@ export const OfferPopupModal: React.FC<OfferPopupModalProps> = ({
 
             {/* ─── MIDDLE SQUARE SHAPE (Houses the Square Photo) ─── */}
             <div className="relative w-full h-full rounded-3xl overflow-hidden bg-[#1a0c14] border-2 border-[#b89758]/70 dark:border-[#fed488]/50 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.8)] select-none">
-              {config.imageUrl ? (
+              {activeImage ? (
                 <img
-                  src={config.imageUrl}
+                  src={activeImage}
                   alt={config.topTitle || 'Special Announcement'}
                   className="w-full h-full object-cover select-none pointer-events-none"
                   draggable={false}

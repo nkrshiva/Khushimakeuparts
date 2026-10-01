@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowRight, LogIn } from 'lucide-react';
+import { PlatformLegalModal, LegalDocType } from './PlatformLegalModal';
 
 interface UniversalPlatformLandingProps {
   onOpenLogin: () => void;
@@ -9,6 +10,30 @@ interface UniversalPlatformLandingProps {
 export const UniversalPlatformLanding: React.FC<UniversalPlatformLandingProps> = ({
   onOpenLogin,
 }) => {
+  const [legalDoc, setLegalDoc] = useState<LegalDocType | null>(null);
+
+  // Sync with URL hash (#privacy, #terms) for direct linking
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.toLowerCase();
+      if (hash === '#privacy' || hash === '#privacy-policy') {
+        setLegalDoc('privacy');
+      } else if (hash === '#terms' || hash === '#terms-of-service') {
+        setLegalDoc('terms');
+      }
+    };
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
+  const handleCloseLegal = () => {
+    setLegalDoc(null);
+    if (window.location.hash === '#privacy' || window.location.hash === '#terms') {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col justify-between bg-[#0c0508] text-white selection:bg-[#b89758]/30 selection:text-[#fed488] font-['Plus_Jakarta_Sans'] relative overflow-hidden">
       {/* Subtle luxury ambient lighting */}
@@ -95,13 +120,33 @@ export const UniversalPlatformLanding: React.FC<UniversalPlatformLandingProps> =
           <div>
             © {new Date().getFullYear()} Atly. All rights reserved.
           </div>
-          <div className="flex items-center gap-4 text-zinc-500">
-            <span className="hover:text-zinc-300 transition-colors">Privacy</span>
-            <span>·</span>
-            <span className="hover:text-zinc-300 transition-colors">Terms</span>
+          <div className="flex items-center gap-4 text-zinc-400">
+            <button
+              type="button"
+              onClick={() => setLegalDoc('privacy')}
+              className="hover:text-[#fed488] transition-colors cursor-pointer"
+            >
+              Privacy Policy
+            </button>
+            <span className="text-zinc-600">·</span>
+            <button
+              type="button"
+              onClick={() => setLegalDoc('terms')}
+              className="hover:text-[#fed488] transition-colors cursor-pointer"
+            >
+              Terms of Service
+            </button>
           </div>
         </div>
       </footer>
+
+      {/* 5. Atly Platform Legal Modal (Privacy Policy & Terms of Service) */}
+      <PlatformLegalModal
+        isOpen={Boolean(legalDoc)}
+        activeDoc={legalDoc || 'privacy'}
+        onClose={handleCloseLegal}
+        onSwitchDoc={(doc) => setLegalDoc(doc)}
+      />
     </div>
   );
 };

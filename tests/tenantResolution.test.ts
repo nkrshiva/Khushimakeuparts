@@ -1333,7 +1333,7 @@ console.log('\n=== RUNNING TENANT RESOLUTION TEST SUITE ===\n');
 
   assert(
     (resKhushi.tenantId === 'khushi' || resKhushi.tenantId === 'khushi-makeup-arts') &&
-    resKhushi.tenantId !== 'swetaglan' &&
+    (resKhushi.tenantId as string) !== 'swetaglan' &&
     resTenantSub.tenantId === 'khushi',
     'Regression: Query parameter ?client= cannot override authoritative tenant hostnames',
     { resKhushi, resTenantSub }

@@ -37,6 +37,7 @@ export interface AnalyticsConfig {
 export interface OfferPopupConfig {
   enabled: boolean;
   imageUrl: string;
+  images?: string[];
   topBadgeText?: string;
   topTitle?: string;
   bottomHighlight?: string;

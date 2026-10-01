@@ -8,3 +8,4 @@ export * from './PlatformFutureProjects';
 export * from './PlatformVision';
 export * from './PlatformFooter';
 export * from './UniversalPlatformLanding';
+export * from './PlatformLegalModal';

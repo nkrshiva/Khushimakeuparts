@@ -59,6 +59,7 @@ import { authorizationService } from '../services/auth/AuthorizationService';
 import { contentService } from '../services/content';
 import { bookingService } from '../services/booking/BookingService';
 import { enquiryService } from '../services/enquiry/EnquiryService';
+import { reviewService } from '../services/review';
 import { SiteContent, SectionVisibilityConfig, DEFAULT_OFFER_POPUP } from '../data/siteContent';
 import { PortfolioCategory, PortfolioModel } from '../data/portfolioData';
 import {
@@ -216,6 +217,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, adminTe
     hidden: false,
   });
   const [showAddTestimonial, setShowAddTestimonial] = useState(false);
+  const [isSavingReview, setIsSavingReview] = useState(false);
 
   // Turnkey Client Clone Generator State
   const [newClientData, setNewClientData] = useState({
@@ -252,39 +254,62 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, adminTe
   const [showAddBeforeAfter, setShowAddBeforeAfter] = useState(false);
 
   // Review Approval / Rejection Handlers
-  const handleApproveReview = (revId: string) => {
+  const handleApproveReview = async (revId: string) => {
     const pending = draft.pendingReviews || [];
     const target = pending.find((r) => r.id === revId);
     if (!target) return;
     const newApproved: TestimonialItem = {
       id: `test_${Date.now()}`,
       clientName: target.clientName,
-      ceremony: target.ceremony,
-      date: target.eventDate,
-      rating: target.rating,
+      ceremony: target.ceremony || 'Bridal Makeup',
+      date: target.eventDate || new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+      rating: target.rating || 5,
       reviewText: target.reviewText,
+      quote: target.reviewText,
       photoUrl: target.photoUrl || '/portfolio/model-01.jpg',
       verified: true,
       hidden: false,
     };
     const updatedPending = pending.filter((r) => r.id !== revId);
     const updatedTestimonials = [newApproved, ...(draft.testimonials || [])];
-    setDraft((prev) => ({
-      ...prev,
+    const updatedDraft = {
+      ...draft,
       pendingReviews: updatedPending,
       testimonials: updatedTestimonials,
-    }));
-    showNotice('success', `✓ Review from ${target.clientName} approved and published live!`);
+    };
+    setDraft(updatedDraft);
+    const saveRes = await saveContent(updatedDraft, effectiveAdminTenantId);
+    if (saveRes.success) {
+      try {
+        await reviewService.approveReview(effectiveAdminTenantId, revId, target);
+      } catch (err) {
+        console.warn('ReviewService approve notice:', err);
+      }
+      showNotice('success', `✓ Review from ${target.clientName} approved and published live!`);
+    } else {
+      showNotice('error', saveRes.error || 'Failed to approve review.');
+    }
   };
 
-  const handleDeclineReview = (revId: string) => {
+  const handleDeclineReview = async (revId: string) => {
     const pending = draft.pendingReviews || [];
     const updatedPending = pending.filter((r) => r.id !== revId);
-    setDraft((prev) => ({
-      ...prev,
+    const updatedDraft = {
+      ...draft,
       pendingReviews: updatedPending,
-    }));
-    showNotice('success', 'Review declined.');
+    };
+    setDraft(updatedDraft);
+    const saveRes = await saveContent(updatedDraft, effectiveAdminTenantId);
+    if (saveRes.success) {
+      try {
+        await reviewService.declineReview(effectiveAdminTenantId, revId);
+      } catch (err) {
+        console.warn('ReviewService decline notice:', err);
+      }
+      showNotice('success', 'Review declined.');
+    } else {
+      showNotice('error', saveRes.error || 'Failed to decline review.');
+    }
   };
 
   // Calendar Handlers
@@ -667,23 +692,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, adminTe
     });
   };
 
-  // Upload single file with Firebase Storage + compressed fallback
+  // Upload single file with Firebase Storage (REQUIRED — base64 fallback is never used
+  // because base64 images bloat the Firestore document beyond the 1 MiB hard limit).
   const processAndUploadFile = async (file: File): Promise<string> => {
-    const compressedDataUrl = await compressImageFile(file);
-
-    if (isFirebaseConnected && mediaService.isAvailable()) {
-      try {
-        const cloudUrl = await mediaService.uploadAdminMedia(file, 3500);
-        return cloudUrl;
-      } catch (err) {
-        console.info('Using client-compressed photo attachment:', err);
-      }
+    if (!isFirebaseConnected || !mediaService.isAvailable()) {
+      throw new Error(
+        'Firebase Storage is not connected. Please check your internet connection and try again. ' +
+        'Images cannot be saved while offline because storing image data directly in the database would exceed size limits.'
+      );
     }
 
-    return compressedDataUrl;
+    // Upload to Firebase Storage (returns a public HTTPS download URL, not a data URL).
+    // Use a longer timeout (30s) for larger files.
+    const timeoutMs = Math.max(30000, Math.min(file.size / 10, 60000)); // 30-60s based on size
+    return await mediaService.uploadAdminMedia(file, timeoutMs);
   };
 
-  // Direct single image upload (for covers, logos, portraits)
+  // Direct single image upload (for covers, logos, portraits, popup photos, SEO banner)
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     onUrlReady: (url: string) => void
@@ -692,19 +717,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, adminTe
     if (!file) return;
     e.target.value = ''; // Reset input so re-selecting the same file triggers onChange
 
+    // Pre-flight: Firebase Storage must be connected — we cannot store image data in Firestore
+    // because even a compressed 900KB image becomes >1MB as base64, exceeding Firestore's 1MiB doc limit.
+    if (!isFirebaseConnected || !mediaService.isAvailable()) {
+      showNotice(
+        'error',
+        '⚠️ Firebase Storage is offline. Please wait for the connection indicator to turn green (🟢 Firebase Synced) and try again.'
+      );
+      return;
+    }
+
+    // Reasonable sanity check: warn on very large raw files (>15MB) before upload
+    if (file.size > 15 * 1024 * 1024) {
+      showNotice('error', `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Please use an image under 15 MB.`);
+      return;
+    }
+
     setUploadingImage('uploading');
-    showNotice('success', `Processing "${file.name}"...`);
+    showNotice('success', `Uploading "${file.name}" to cloud storage...`);
 
     try {
       const url = await processAndUploadFile(file);
       if (url) {
         onUrlReady(url);
-        showNotice('success', 'Photo attached successfully! Click "Save & Publish Live" to save.');
+        showNotice('success', '✓ Photo uploaded to cloud storage! Click "Save & Publish Live" to save.');
       } else {
-        showNotice('error', 'Could not process photo file.');
+        showNotice('error', 'Upload completed but no URL was returned. Please try again.');
       }
     } catch (err: any) {
-      showNotice('error', 'Failed to attach image: ' + (err?.message || 'Error'));
+      showNotice('error', 'Upload failed: ' + (err?.message || 'Unknown error. Check your internet connection.'));
     } finally {
       setUploadingImage(null);
     }
@@ -1932,119 +1973,202 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
 
               {/* Square Image & Content Settings Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Left Column: Image Uploader & Live Preview */}
-                <div className="lg:col-span-5 p-6 rounded-2xl bg-[#1d0e15] border border-[#b89758]/40 space-y-4">
-                  <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-[#fed488]" />
-                    <span>Middle Square Photo / Flyer</span>
-                  </h4>
+                {/* Left Column: 4-Slot Photo Rotation Uploader & Manager */}
+                <div className="lg:col-span-6 p-6 rounded-2xl bg-[#1d0e15] border border-[#b89758]/40 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-[#fed488]" />
+                      <span>Popup Photos (4 Slots Rotation)</span>
+                    </h4>
+                    <span className="text-[10px] text-[#fed488] font-mono bg-[#fed488]/10 px-2 py-0.5 rounded-full border border-[#fed488]/20">
+                      Random Selection
+                    </span>
+                  </div>
                   <p className="text-xs text-[#dfc3c9]/70">
-                    Upload a square promotional poster, festive offer banner, or bridal glamour photo.
+                    Upload up to 4 photos. Each time a visitor views the offer popup, one photo is randomly displayed from your active slots.
                   </p>
 
-                  {/* Square Photo Preview Box */}
-                  <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-black/60 border border-[#b89758]/40 shadow-inner flex items-center justify-center group">
-                    {draft.offerPopup?.imageUrl ? (
-                      <img
-                        src={draft.offerPopup.imageUrl}
-                        alt="Popup preview"
-                        className="w-full h-full object-cover select-none"
-                      />
-                    ) : (
-                      <div className="text-center p-4">
-                        <ImageIcon className="w-10 h-10 text-white/30 mx-auto mb-2" />
-                        <span className="text-xs text-zinc-400">No square photo attached</span>
-                      </div>
-                    )}
-
-                    {/* Overlay Upload Button */}
-                    <label className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 cursor-pointer text-white">
-                      <Upload className="w-6 h-6 text-[#fed488]" />
-                      <span className="text-xs font-semibold">Change Photo</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) =>
-                          handleFileUpload(e, (url) => {
-                            setDraft({
-                              ...draft,
-                              offerPopup: {
-                                ...(draft.offerPopup || DEFAULT_OFFER_POPUP),
-                                imageUrl: url,
-                              },
-                            });
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-
-                  {/* Image URL Text Input */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[#fed488] uppercase tracking-wider mb-1.5">
-                      Photo URL / Direct Path
-                    </label>
-                    <input
-                      type="text"
-                      value={draft.offerPopup?.imageUrl || ''}
-                      onChange={(e) =>
-                        setDraft({
-                          ...draft,
-                          offerPopup: {
-                            ...(draft.offerPopup || DEFAULT_OFFER_POPUP),
-                            imageUrl: e.target.value,
-                          },
-                        })
+                  {/* 4 Photo Slots Grid */}
+                  {(() => {
+                    const rawImages = Array.isArray(draft.offerPopup?.images)
+                      ? [...draft.offerPopup.images]
+                      : [];
+                    const slots = [0, 1, 2, 3].map((idx) => {
+                      if (rawImages[idx] && typeof rawImages[idx] === 'string' && rawImages[idx].trim().length > 0) {
+                        return rawImages[idx].trim();
                       }
-                      placeholder="/portfolio/model-01.jpg or https://..."
-                      className="w-full px-3.5 py-2 text-xs rounded-xl bg-black/50 border border-white/10 text-white focus:border-[#fed488] focus:outline-none transition-colors"
-                    />
-                  </div>
+                      if (idx === 0 && rawImages.length === 0 && draft.offerPopup?.imageUrl) {
+                        return draft.offerPopup.imageUrl.trim();
+                      }
+                      return '';
+                    });
 
-                  {/* Quick Preset Selector */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[#dfc3c9] mb-1.5">
-                      Or Choose from Portfolio Photos:
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[
-                        '/portfolio/model-01.jpg',
-                        '/portfolio/model2-01.jpeg',
-                        '/portfolio/model3-01.jpg',
-                        '/portfolio/model4-01.jpg',
-                      ].map((presetUrl, pIdx) => (
-                        <button
-                          key={pIdx}
-                          type="button"
-                          onClick={() => {
-                            setDraft({
-                              ...draft,
-                              offerPopup: {
-                                ...(draft.offerPopup || DEFAULT_OFFER_POPUP),
-                                imageUrl: presetUrl,
-                              },
-                            });
-                          }}
-                          className={`aspect-square rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
-                            draft.offerPopup?.imageUrl === presetUrl
-                              ? 'border-[#fed488] scale-105 shadow-md'
-                              : 'border-white/20 hover:border-white/60 opacity-70 hover:opacity-100'
-                          }`}
-                        >
-                          <img
-                            src={presetUrl}
-                            alt={`Preset ${pIdx + 1}`}
-                            className="w-full h-full object-cover"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                    const updateSlot = (slotIdx: number, newUrl: string) => {
+                      const updated = [...slots];
+                      updated[slotIdx] = newUrl.trim();
+                      const firstNonEmpty = updated.find((u) => u && u.length > 0) || '';
+                      setDraft({
+                        ...draft,
+                        offerPopup: {
+                          ...(draft.offerPopup || DEFAULT_OFFER_POPUP),
+                          images: updated,
+                          imageUrl: firstNonEmpty,
+                        },
+                      });
+                    };
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3">
+                          {slots.map((slotUrl, slotIdx) => {
+                            const isOccupied = Boolean(slotUrl && slotUrl.length > 0);
+                            return (
+                              <div
+                                key={slotIdx}
+                                className={`p-3 rounded-xl border flex flex-col space-y-2 transition-all ${
+                                  isOccupied
+                                    ? 'bg-black/50 border-[#b89758]/50 shadow-sm'
+                                    : 'bg-black/30 border-white/10'
+                                }`}
+                              >
+                                {/* Slot Header */}
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-bold text-[#fed488] uppercase tracking-wider">
+                                    Photo {slotIdx + 1}
+                                  </span>
+                                  {isOccupied ? (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 font-medium">
+                                      Active
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-zinc-400 border border-white/10">
+                                      Empty
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Preview / Upload Area */}
+                                <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-black/60 border border-white/10 flex items-center justify-center group">
+                                  {isOccupied ? (
+                                    <>
+                                      <img
+                                        src={slotUrl}
+                                        alt={`Popup Slot ${slotIdx + 1}`}
+                                        className="w-full h-full object-cover select-none"
+                                      />
+                                      {/* Hover Overlay: Change Photo */}
+                                      <label className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 cursor-pointer text-white">
+                                        <Upload className="w-5 h-5 text-[#fed488]" />
+                                        <span className="text-[11px] font-semibold">Change</span>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          className="hidden"
+                                          onChange={(e) =>
+                                            handleFileUpload(e, (url) => updateSlot(slotIdx, url))
+                                          }
+                                        />
+                                      </label>
+                                    </>
+                                  ) : (
+                                    <label className="w-full h-full border border-dashed border-white/20 hover:border-[#fed488]/60 rounded-lg flex flex-col items-center justify-center gap-1.5 p-2 text-center cursor-pointer transition-colors group">
+                                      <Upload className="w-5 h-5 text-zinc-500 group-hover:text-[#fed488] transition-colors" />
+                                      <span className="text-[11px] font-medium text-zinc-300 group-hover:text-white transition-colors">
+                                        Upload Photo
+                                      </span>
+                                      <span className="text-[9px] text-zinc-500">
+                                        PNG / JPG
+                                      </span>
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        onChange={(e) =>
+                                          handleFileUpload(e, (url) => updateSlot(slotIdx, url))
+                                        }
+                                      />
+                                    </label>
+                                  )}
+                                </div>
+
+                                {/* Direct Path / URL Input */}
+                                <input
+                                  type="text"
+                                  value={slotUrl}
+                                  onChange={(e) => updateSlot(slotIdx, e.target.value)}
+                                  placeholder={isOccupied ? 'Image URL / path' : 'Paste image URL or upload above'}
+                                  className="w-full px-2 py-1 text-[10px] rounded-lg bg-black/60 border border-white/10 text-white font-mono placeholder:text-zinc-600 focus:border-[#fed488] focus:outline-none transition-colors"
+                                />
+
+                                {/* Action Buttons */}
+                                {isOccupied && (
+                                  <button
+                                    type="button"
+                                    onClick={() => updateSlot(slotIdx, '')}
+                                    className="w-full flex items-center justify-center gap-1 py-1 text-[10px] rounded-lg bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-500/30 transition-colors cursor-pointer"
+                                    title={`Clear Photo ${slotIdx + 1}`}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Remove Photo</span>
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Quick Preset Selector */}
+                        <div className="pt-2 border-t border-white/10">
+                          <label className="block text-[11px] font-semibold text-[#dfc3c9] mb-1.5">
+                            Or Fill from Portfolio Presets:
+                          </label>
+                          <div className="grid grid-cols-4 gap-2">
+                            {[
+                              '/portfolio/model-01.jpg',
+                              '/portfolio/model2-01.jpeg',
+                              '/portfolio/model3-01.jpg',
+                              '/portfolio/model4-01.jpg',
+                            ].map((presetUrl, pIdx) => {
+                              const isCurrentlyUsed = slots.includes(presetUrl);
+                              return (
+                                <button
+                                  key={pIdx}
+                                  type="button"
+                                  onClick={() => {
+                                    // Assign to first empty slot, or replace slot 0 if all full
+                                    const emptyIdx = slots.findIndex((s) => !s);
+                                    const targetIdx = emptyIdx !== -1 ? emptyIdx : pIdx;
+                                    updateSlot(targetIdx, presetUrl);
+                                  }}
+                                  className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all cursor-pointer group ${
+                                    isCurrentlyUsed
+                                      ? 'border-[#fed488] shadow-md'
+                                      : 'border-white/20 hover:border-white/60 opacity-70 hover:opacity-100'
+                                  }`}
+                                  title={`Click to add Preset ${pIdx + 1} to empty slot`}
+                                >
+                                  <img
+                                    src={presetUrl}
+                                    alt={`Preset ${pIdx + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  {isCurrentlyUsed && (
+                                    <div className="absolute top-1 right-1 bg-emerald-900/90 text-white p-0.5 rounded-full">
+                                      <Check className="w-2.5 h-2.5 text-emerald-300" />
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Right Column: Text & CTA Settings */}
-                <div className="lg:col-span-7 space-y-4">
+                <div className="lg:col-span-6 space-y-4">
                   {/* Top Touched Text Section */}
                   <div className="p-6 rounded-2xl bg-[#1d0e15] border border-[#b89758]/40 space-y-4">
                     <div className="flex items-center gap-2 pb-2 border-b border-white/10">
@@ -2910,11 +3034,13 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
                   </div>
 
                   <button
-                    onClick={() => {
+                    disabled={isSavingReview}
+                    onClick={async () => {
                       if (!newTestimonial.clientName?.trim() || !newTestimonial.quote?.trim()) {
                         showNotice('error', 'Please enter bride name and review quote.');
                         return;
                       }
+                      setIsSavingReview(true);
                       const item: TestimonialItem = {
                         id: 'testi-' + Date.now(),
                         clientName: newTestimonial.clientName.trim(),
@@ -2928,26 +3054,52 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
                         verified: true,
                         hidden: false,
                       };
-                      setDraft({
+                      const updatedDraft = {
                         ...draft,
                         testimonials: [item, ...(draft.testimonials || [])],
-                      });
-                      setShowAddTestimonial(false);
-                      setNewTestimonial({
-                        clientName: '',
-                        ceremony: 'Bridal Makeup & Styling',
-                        rating: 5,
-                        quote: '',
-                        videoUrl: '',
-                        photoUrl: '',
-                        verified: true,
-                        hidden: false,
-                      });
-                      showNotice('success', 'Review added! Click "Save & Publish Live" to publish.');
+                      };
+                      setDraft(updatedDraft);
+                      try {
+                        const saveRes = await saveContent(updatedDraft, effectiveAdminTenantId);
+                        if (saveRes.success) {
+                          setShowAddTestimonial(false);
+                          setNewTestimonial({
+                            clientName: '',
+                            ceremony: 'Bridal Makeup & Styling',
+                            rating: 5,
+                            quote: '',
+                            videoUrl: '',
+                            photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=400&q=80',
+                            verified: true,
+                            hidden: false,
+                          });
+                          showNotice('success', '✓ Review added and published live!');
+                        } else {
+                          showNotice('error', saveRes.error || 'Failed to save review.');
+                        }
+                      } catch (err: any) {
+                        showNotice('error', 'Failed to save review: ' + (err?.message || err));
+                      } finally {
+                        setIsSavingReview(false);
+                      }
                     }}
-                    className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold cursor-pointer"
+                    className={`px-4 py-2 rounded-xl text-white text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                      isSavingReview
+                        ? 'bg-emerald-800 opacity-70 cursor-not-allowed'
+                        : 'bg-emerald-700 hover:bg-emerald-600 cursor-pointer'
+                    }`}
                   >
-                    Add to Showcase
+                    {isSavingReview ? (
+                      <>
+                        <RotateCcw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Publishing Review...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add to Showcase & Publish</span>
+                      </>
+                    )}
                   </button>
                 </div>
               )}
@@ -3060,10 +3212,15 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
 
                       <div className="flex items-center gap-2 self-end sm:self-start shrink-0">
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             const updated = [...(draft.testimonials || [])];
                             updated[idx] = { ...updated[idx], hidden: !updated[idx].hidden };
-                            setDraft({ ...draft, testimonials: updated });
+                            const updatedDraft = { ...draft, testimonials: updated };
+                            setDraft(updatedDraft);
+                            const saveRes = await saveContent(updatedDraft, effectiveAdminTenantId);
+                            if (!saveRes.success) {
+                              showNotice('error', saveRes.error || 'Failed to update visibility.');
+                            }
                           }}
                           className={`p-2 rounded-xl border text-xs font-medium cursor-pointer transition-colors ${
                             t.hidden
@@ -3076,13 +3233,20 @@ export const ADMIN_ACCOUNTS: AdminAccount[] = [
                         </button>
 
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             if (confirm(`Remove review from ${t.clientName}?`)) {
-                              setDraft({
+                              const updated = (draft.testimonials || []).filter((_, i) => i !== idx);
+                              const updatedDraft = {
                                 ...draft,
-                                testimonials: (draft.testimonials || []).filter((_, i) => i !== idx),
-                              });
-                              showNotice('success', 'Testimonial removed.');
+                                testimonials: updated,
+                              };
+                              setDraft(updatedDraft);
+                              const saveRes = await saveContent(updatedDraft, effectiveAdminTenantId);
+                              if (saveRes.success) {
+                                showNotice('success', '✓ Testimonial removed and saved live.');
+                              } else {
+                                showNotice('error', saveRes.error || 'Failed to remove testimonial.');
+                              }
                             }
                           }}
                           className="p-2 rounded-xl bg-rose-950/40 hover:bg-rose-900 text-rose-300 border border-rose-500/30 transition-all cursor-pointer"
